@@ -1,0 +1,63 @@
+from sqlalchemy import Column, String, Integer, DateTime, Float, JSON, ForeignKey, Boolean
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
+from sqlalchemy.sql import func
+from .session import Base
+
+class Device(Base):
+    __tablename__ = "devices"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=False)
+    device_type = Column(String)
+    token = Column(String, nullable=False)
+    meta = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Measurement(Base):
+    __tablename__ = "measurements"
+    time = Column(DateTime(timezone=True), primary_key=True)
+    device_id = Column(UUID(as_uuid=True), ForeignKey('devices.id'), primary_key=True)
+    temperature_c = Column(Float)
+    relative_humidity_pct = Column(Float)
+    solar_radiance_w_m2 = Column(Float)
+    wind_speed_m_s = Column(Float)
+    wind_direction_deg = Column(Float)
+    battery_v = Column(Float)
+    meta = Column(JSON)
+
+class CameraSession(Base):
+    __tablename__ = 'camera_sessions'
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    device_id = Column(UUID(as_uuid=True), ForeignKey('devices.id'))
+    operator_id = Column(String)
+    field_id = Column(String)
+    started_at = Column(DateTime(timezone=True))
+    ended_at = Column(DateTime(timezone=True))
+    frames_count = Column(Integer, default=0)
+    meta = Column(JSON)
+
+class Image(Base):
+    __tablename__ = 'images'
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey('camera_sessions.id'))
+    device_id = Column(UUID(as_uuid=True), ForeignKey('devices.id'))
+    capture_time = Column(DateTime(timezone=True))
+    s3_key = Column(String)
+    width = Column(Integer)
+    height = Column(Integer)
+    thumbnail_key = Column(String)
+    analysis = Column(JSON)
+    status = Column(String, default='pending')
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Alert(Base):
+    __tablename__ = 'alerts'
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    device_id = Column(UUID(as_uuid=True), ForeignKey('devices.id'))
+    alert_type = Column(String)
+    severity = Column(String)
+    message = Column(String)
+    payload = Column(JSON)
+    acknowledged = Column(Boolean, default=False)
+    acknowledged_by = Column(String)
