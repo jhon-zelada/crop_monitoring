@@ -1,15 +1,84 @@
 import React from "react";
 import SensorCard from "../components/SensorCard";
+import { fetchLatest, fetchSummary, openLive } from "../lib/api";
 
 export default function Dashboard() {
-  // dummy values
-  const metrics = [
-    { title: "Temperatura", value: 25.9, unit: "°C", min: 18, max: 32, prom: 24 },
-    { title: "Humedad Rel.", value: 58.7, unit: "%", min: 40, max: 90, prom: 62 },
-    { title: "Radiación Solar", value: 819.8, unit: "W/m²", min: 100, max: 1200, prom: 700 },
-    { title: "Vel. Viento", value: 5.0, unit: "m/s", min: 0, max: 20, prom: 6 },
-    { title: "Dir. Viento", value: 154, unit: "°" },
-  ];
+  const [deviceId, setDeviceId] = React.useState("device-1"); // pick your real device id
+  const [now, setNow] = React.useState(new Date());
+  const [metrics, setMetrics] = React.useState([
+    { key: "temperature_c",    title: "Temperatura",   value: null, unit: "°C",  min: null, max: null, prom: null },
+    { key: "relative_humidity_pct", title: "Humedad Rel.", value: null, unit: "%",  min: null, max: null, prom: null },
+    { key: "solar_radiance_w_m2",   title: "Radiación Solar", value: null, unit: "W/m²", min: null, max: null, prom: null },
+    { key: "wind_speed_m_s",   title: "Vel. Viento",   value: null, unit: "m/s", min: null, max: null, prom: null },
+    { key: "wind_direction_deg", title: "Dir. Viento", value: null, unit: "°" },
+  ]);
+
+  // clock
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000 * 30);
+    return () => clearInterval(id);
+  }, []);
+
+  // initial load + summary
+  const loadData = React.useCallback(async () => {
+    try {
+      const [latest, summary] = await Promise.all([
+        fetchLatest(deviceId),
+        fetchSummary(deviceId, 24),
+      ]);
+
+      setMetrics((prev) =>
+        prev.map((m) => {
+          const v = latest[m.key];
+          const s = summary[m.key] || {};
+          return {
+            ...m,
+            value: typeof v === "number" ? Number(v) : m.value,
+            min:  typeof s.min === "number" ? Number(s.min) : m.min,
+            max:  typeof s.max === "number" ? Number(s.max) : m.max,
+            prom: typeof s.avg === "number" ? Number(s.avg) : m.prom,
+          };
+        })
+      );
+    } catch (err) {
+      console.error("loadData failed:", err);
+    }
+  }, [deviceId]);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  // live updates over WS
+  React.useEffect(() => {
+    const ws = openLive(deviceId);
+
+    ws.onopen = () => console.debug("WS open");
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === "measurement" && msg.device_id === deviceId) {
+          const d = msg.data || {};
+          setMetrics((prev) =>
+            prev.map((m) => {
+              const nv = d[m.key];
+              return typeof nv === "number" ? { ...m, value: Number(nv) } : m;
+            })
+          );
+        }
+      } catch (e) {
+        console.warn("WS parse error:", e);
+      }
+    };
+    ws.onerror = (e) => console.warn("WS error", e);
+    ws.onclose = () => console.debug("WS closed");
+
+    return () => ws.close();
+  }, [deviceId]);
+
+  const formatLocal = (dt) =>
+    new Intl.DateTimeFormat(undefined, {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(dt);
 
   return (
     <div>
@@ -25,27 +94,25 @@ export default function Dashboard() {
       </div>
 
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-        <select style={{ padding: 10, borderRadius: 8, border: "1px solid var(--card-border)" }}>
-          <option>Parcela 1 - Quinua</option>
+        <select
+          value={deviceId}
+          onChange={(e) => setDeviceId(e.target.value)}
+          style={{ padding: 10, borderRadius: 8, border: "1px solid var(--card-border)" }}
+        >
+          <option value="device-1">Parcela 1 - Quinua</option>
+          {/* Add your real devices here */}
         </select>
-        <div style={{ marginLeft: "auto", color: "#64748b" }}>Fecha local: 01/09/2025, 07:47 p.m.</div>
+
+        <div style={{ marginLeft: "auto", color: "#64748b", display: "flex", alignItems: "center", gap: 6 }}>
+          <span>Fecha local:</span>
+          <strong>{formatLocal(now)}</strong>
+        </div>
       </div>
-      
+
       <div className="cards-grid">
         {metrics.map((m, i) => (
           <SensorCard key={i} {...m} />
         ))}
-
-        {/* Example of a large card */}
-        {/* <div className="card large" style={{ background: "linear-gradient(90deg,#ecfdf5,#f0fdf4)", border: "1px solid #d1fae5" }}>
-          <div>
-            <div style={{ fontSize: 14, color: "#065f46", fontWeight: 700 }}>Monitoreo de Parcelas</div>
-            <div className="kv">Corredor Económico Abancay-Aymaraes, Región Apurímac</div>
-          </div>
-          <div>
-            <button style={{ padding: "8px 12px", borderRadius: 8, background: "#06b6d4", color: "#fff", border: "none" }}>Exportar</button>
-          </div>
-        </div> */}
       </div>
     </div>
   );

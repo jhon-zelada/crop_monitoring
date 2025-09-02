@@ -1,3 +1,4 @@
+// File: src/App.jsx (drop-in replacement; keeps your existing pages & components, adds auth gating)
 import React from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -7,6 +8,7 @@ import MapaInteractivo from "./pages/MapaInteractivo";
 import Alertas from "./pages/Alertas";
 import Images from "./pages/Images";
 import GraficoSensores from "./pages/GraficoSensores";
+import LoginPage from "./pages/Login";
 
 export default function App() {
   // view: current active page key
@@ -24,8 +26,34 @@ export default function App() {
   // lastUpdated: dynamic timestamp (update when user presses refresh)
   const [lastUpdated, setLastUpdated] = React.useState(null);
 
+  // auth: simple token-based gating (replace with your real auth flow)
+  const [authenticated, setAuthenticated] = React.useState(() => {
+    try {
+      return !!localStorage.getItem("token");
+    } catch {
+      return false;
+    }
+  });
+
   // example user (avatar or initials)
-  const user = { name: "Dr. Carlos Mendoza", initials: "CM", avatar: null };
+  const user = {
+    name: "Carlos Mendoza",
+    avatar: null,
+    email: "carlos.mendoza@example.com",
+    accountType: "Administrador"
+  };
+
+  // login callback from LoginPage
+  const handleLogin = (payload) => {
+    // payload is whatever your backend returned (user, token...)
+    setAuthenticated(true);
+    // optional: set user info from payload.user
+  };
+
+  const handleLogout = () => {
+    try { localStorage.removeItem('token'); } catch {}
+    setAuthenticated(false);
+  };
 
   // refresh handler (could call backend here)
   const handleRefresh = async () => {
@@ -34,7 +62,6 @@ export default function App() {
     // e.g. await api.fetchLatest();
   };
 
-  // save collapsed state
   React.useEffect(() => {
     try {
       localStorage.setItem("sidebar.collapsed", collapsed ? "true" : "false");
@@ -58,6 +85,11 @@ export default function App() {
     }
   };
 
+  // If the user is not authenticated, show the login page
+  if (!authenticated) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   return (
     <div className="app-root">
       <Sidebar
@@ -75,9 +107,13 @@ export default function App() {
           user={user}
           collapseToggle={() => setCollapsed((s) => !s)}
           collapsed={collapsed}
+          onLogout={handleLogout}
+          onNavigate={setView}
         />
         <main className="content-area">{renderPage()}</main>
       </div>
     </div>
   );
 }
+
+

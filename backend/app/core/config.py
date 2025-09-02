@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     MINIO_BUCKET: str = "crop-images"
     MINIO_SECURE: bool = False
     SECRET_KEY: str
-    DEVICE_TOKEN: str
+    DEVICE_TOKEN: str = "supersecret"
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
 

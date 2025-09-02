@@ -1,27 +1,26 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.db.session import engine, Base
 from app.api import telemetry, images
+from app.routers import auth
 
-# create tables automatically (scaffold convenience)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title='Crop Monitoring API')
 
+# CORS: allow your frontend (dev & docker)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # tighten in prod (e.g. ["http://localhost:5173"])
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(telemetry.router)
 app.include_router(images.router)
-
-# simple websocket endpoint (for live updates)
-@app.websocket('/ws/live')
-async def ws_live(websocket: WebSocket):
-    await websocket.accept()
-    try:
-        while True:
-            data = await websocket.receive_text()
-            # echo for now
-            await websocket.send_text(f'echo: {data}')
-    except Exception:
-        await websocket.close()
+app.include_router(auth.router)
 
 @app.get('/health')
 def health():
