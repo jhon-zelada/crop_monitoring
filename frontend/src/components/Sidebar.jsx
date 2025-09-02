@@ -47,16 +47,6 @@ export default function Sidebar({ view, setView, collapsed, setCollapsed, user }
           <div className="title">Proyecto Quinua</div>
           <div className="subtitle">Agricultura de Precisión</div>
         </div>
-
-        {/* collapse button */}
-        <button
-          aria-label={collapsed ? "Expandir menú" : "Colapsar menú"}
-          className="collapse-btn"
-          onClick={() => setCollapsed(!collapsed)}
-          title={collapsed ? "Expandir menú" : "Colapsar menú"}
-        >
-          {collapsed ? "»" : "«"}
-        </button>
       </div>
 
       <nav>
@@ -86,7 +76,7 @@ export default function Sidebar({ view, setView, collapsed, setCollapsed, user }
         <div style={{ marginTop: 10 }}>
           <div className="kv">Sistema</div>
           <div style={{ marginTop: 6 }}>
-            <span className="badge">Sistema Activo</span>
+            <span className="badge">Activo</span>
           </div>
         </div>
       </div>

@@ -17,11 +17,17 @@ export default function MapaInteractivo() {
     // init map
     const map = L.map(containerRef.current, { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM });
     mapRef.current = map;
+L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+  {
+    attribution: "Tiles © Esri — Source: Esri, HERE, Garmin, FAO, NOAA, USGS",
+  }
+).addTo(map);
 
-    // Use OpenStreetMap tiles (change to satellite provider later)
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap contributors"
-    }).addTo(map);
+
+setTimeout(() => {
+  map.invalidateSize();
+}, 100);
 
     // Add marker for station (since your weather station has known, static coords)
     L.marker(DEFAULT_CENTER).addTo(map).bindPopup("Estación meteorológica (ubicación registrada)");
@@ -30,10 +36,11 @@ export default function MapaInteractivo() {
   }, []);
 
 return (
-  <div>
+  <div className="map-container">
     <h2 style={{ marginBottom: 12 }}>Mapa Interactivo</h2>
     <div className="map-box" ref={containerRef}></div>
   </div>
 );
+
 
 }

@@ -87,6 +87,7 @@ html,body,#root{ height:100%; margin:0; background:var(--page-bg); font-family: 
   display:flex;
   flex-direction:column;
   min-width:0; /* prevents overflow of child flex items */
+  height: 100%;
 }
 
 /* topbar */
@@ -108,9 +109,12 @@ html,body,#root{ height:100%; margin:0; background:var(--page-bg); font-family: 
 .content-area {
   flex:1;
   overflow-y:auto;
+  display: flex;
+  flex-direction: column;
   padding: 24px;
   background: var(--page-bg);
 }
+
 
 /* Container card and banner styles */
 .banner {
@@ -184,13 +188,6 @@ html,body,#root{ height:100%; margin:0; background:var(--page-bg); font-family: 
   justify-content:center;
 }
 
-/* map placeholder */
-
-.map-box {
-  width: 100%;
-  height: 100%;   /* let it expand inside its parent */
-  min-height: 400px; /* fallback so it's always visible */
-}
 
 /* alerts list */
 .alert-list { display:flex; flex-direction:column; gap:10px; }
@@ -213,11 +210,6 @@ html,body,#root{ height:100%; margin:0; background:var(--page-bg); font-family: 
   vertical-align:middle;
   box-shadow: 0 1px 0 rgba(0,0,0,0.04);
 }
-.status-green { background: var(--accent); }
-.status-yellow { background: var(--warn); }
-.status-red { background: var(--danger); }
-
-
 
 /* compact compass */
 .compass {
@@ -402,6 +394,17 @@ html,body,#root{ height:100%; margin:0; background:var(--page-bg); font-family: 
 
 /* Topbar small tweak to align when sidebar collapsed */
 .topbar { display:flex; align-items:center; justify-content:space-between; height:64px; padding:0 18px; border-bottom:1px solid #e6eef4; background:#fff; }
-/* ensure main area is not overlayed */
-.main-area { display:flex; flex-direction:column; flex:1; min-width:0; }
-.content-area { flex:1; overflow-y:auto; padding: 24px; background: var(--page-bg); }
+
+
+
+.map-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.map-box {
+  flex: 1;             /* take remaining space */
+  min-height: 400px;   /* ensures it doesn’t collapse */
+  width: 100%;
+}
