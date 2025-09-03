@@ -1,9 +1,13 @@
+// frontend/src/pages/Dashboard.jsx
 import React from "react";
 import SensorCard from "../components/SensorCard";
 import { fetchLatest, fetchSummary, openLive } from "../lib/api";
 
 export default function Dashboard() {
-  const [deviceId, setDeviceId] = React.useState("device-1"); // pick your real device id
+  // Pon aquí un UUID real o deja vacío para "All devices".
+  const DEFAULT_DEVICE = "11111111-1111-1111-1111-111111111111";
+  const [deviceId, setDeviceId] = React.useState(DEFAULT_DEVICE);
+
   const [now, setNow] = React.useState(new Date());
   const [metrics, setMetrics] = React.useState([
     { key: "temperature_c",    title: "Temperatura",   value: null, unit: "°C",  min: null, max: null, prom: null },
@@ -19,8 +23,9 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, []);
 
-  // initial load + summary
+  // initial load + summary (re-run when deviceId changes)
   const loadData = React.useCallback(async () => {
+    if (!deviceId) return; // si subscribe a "all", no hay device single para fetchLatest/fetchSummary
     try {
       const [latest, summary] = await Promise.all([
         fetchLatest(deviceId),
@@ -47,31 +52,36 @@ export default function Dashboard() {
 
   React.useEffect(() => { loadData(); }, [loadData]);
 
-  // live updates over WS
+  // live updates over WS (reconnects when deviceId changes because dependency array includes deviceId)
   React.useEffect(() => {
-    const ws = openLive(deviceId);
+    const ws = openLive(deviceId); // openLive omite device_id si deviceId falsy
 
     ws.onopen = () => console.debug("WS open");
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data);
-        if (msg.type === "measurement" && msg.device_id === deviceId) {
-          const d = msg.data || {};
-          setMetrics((prev) =>
-            prev.map((m) => {
-              const nv = d[m.key];
-              return typeof nv === "number" ? { ...m, value: Number(nv) } : m;
-            })
-          );
+        if (msg.type === "measurement") {
+          // si no hay deviceId seleccionado, aceptamos todos; si hay, filtramos por device_id
+          if (!deviceId || msg.device_id === deviceId) {
+            const d = msg.data || {};
+            setMetrics((prev) =>
+              prev.map((m) => {
+                const nv = d[m.key];
+                return typeof nv === "number" ? { ...m, value: Number(nv) } : m;
+              })
+            );
+          }
         }
       } catch (e) {
         console.warn("WS parse error:", e);
       }
     };
     ws.onerror = (e) => console.warn("WS error", e);
-    ws.onclose = () => console.debug("WS closed");
+    ws.onclose = (e) => console.debug("WS closed", e);
 
-    return () => ws.close();
+    return () => {
+      try { ws.close(); } catch (e) {}
+    };
   }, [deviceId]);
 
   const formatLocal = (dt) =>
@@ -99,8 +109,9 @@ export default function Dashboard() {
           onChange={(e) => setDeviceId(e.target.value)}
           style={{ padding: 10, borderRadius: 8, border: "1px solid var(--card-border)" }}
         >
-          <option value="device-1">Parcela 1 - Quinua</option>
-          {/* Add your real devices here */}
+          <option value="">All devices</option>
+          <option value={DEFAULT_DEVICE}>Parcela 1 - Quinua ({DEFAULT_DEVICE})</option>
+          {/* Añade aquí más opciones con UUID reales */}
         </select>
 
         <div style={{ marginLeft: "auto", color: "#64748b", display: "flex", alignItems: "center", gap: 6 }}>

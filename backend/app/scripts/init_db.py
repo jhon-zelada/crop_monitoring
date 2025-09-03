@@ -1,19 +1,17 @@
-from db.session import SessionLocal, engine, Base
-from db import models
-
-# create tables if they don't exist
-Base.metadata.create_all(bind=engine)
+from app.db.session import SessionLocal
+from app.db import models
+import uuid
 
 db = SessionLocal()
 
-# create a device
 device = models.Device(
-    name="Test Weather Station",
-    device_type="sensor",
-    token="supersecret"   # same token you send in ?token=supersecret
+    id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+    name="Parcela 1 - Quinua",
+    device_type="sensor-node",
+    token="supersecrettoken123",
+    meta={"location": "field A"}
 )
+
 db.add(device)
 db.commit()
-db.refresh(device)
 
-print("Created device with id:", device.id)

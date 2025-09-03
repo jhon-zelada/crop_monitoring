@@ -1,21 +1,34 @@
+# app/api/telemetry.py
+from __future__ import annotations
+
+import asyncio
+import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
-from pydantic import BaseModel
+from fastapi import (
+    APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect,
+    Header, status
+)
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import get_db
 from app.db import models
-from uuid import UUID
-import uuid
+
+# celery task
+from app.workers.tasks import process_measurement
 
 router = APIRouter()
 
-# ----- Schemas -----
+# ---------- Config helpers ----------
+ALLOW_GLOBAL_DEVICE_TOKEN = getattr(settings, "ALLOW_GLOBAL_DEVICE_TOKEN", False)
+
+# ---------- Schemas ----------
 class Measurements(BaseModel):
     temperature_c: float
     relative_humidity_pct: float
@@ -26,105 +39,188 @@ class Measurements(BaseModel):
 
 class TelemetryIn(BaseModel):
     device_id: str
-    message_id: str
+    message_id: str | None
     timestamp: datetime
     measurements: Measurements
     meta: dict | None = None
 
-def verify_device_token(token: str):
-    if token != settings.DEVICE_TOKEN:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid device token')
+    @field_validator("device_id")
+    @classmethod
+    def must_be_uuid(cls, v: str) -> str:
+        try:
+            UUID(str(v))
+            return v
+        except Exception:
+            raise ValueError("device_id must be a valid UUID string")
 
-# ----- WebSocket connection manager (by device_id) -----
+def _verify_device_token_for_device(token: str | None, device: models.Device):
+    if token is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing device token")
+
+    if token == getattr(settings, "DEVICE_TOKEN", None) and ALLOW_GLOBAL_DEVICE_TOKEN:
+        return
+
+    if device and token == device.token:
+        return
+
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid device token")
+
+def _extract_user_access_token(query_params) -> Optional[str]:
+    return query_params.get("access_token")
+
+def _verify_user_access_token(token: Optional[str]) -> dict:
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing access token")
+    expected = "supersecrettoken123"
+    if token != expected:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
+    return {"sub": "admin", "role": "admin"}
+
+# ---------- Connection manager (exportado como `manager`) ----------
 class ConnectionManager:
+    """
+    Mantiene websockets por device_id y permite broadcast a:
+      - subscriptores específicos (device_id)
+      - subscriptores globales (device_id == None)
+    """
     def __init__(self):
-        self.active: dict[str, set[WebSocket]] = defaultdict(set)
+        self._device_subs: dict[str, set[WebSocket]] = defaultdict(set)
+        self._all_subs: set[WebSocket] = set()
+        self._lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket, device_id: Optional[str]):
+        # No hacemos websocket.accept() aquí si prefieres aceptarlo en el endpoint;
+        # lo aceptamos aquí para centralizar.
         await websocket.accept()
-        key = device_id or "*"    # clients without device_id receive all broadcasts
-        self.active[key].add(websocket)
+        async with self._lock:
+            if device_id:
+                self._device_subs[str(device_id)].add(websocket)
+            else:
+                self._all_subs.add(websocket)
 
-    def disconnect(self, websocket: WebSocket, device_id: Optional[str]):
-        key = device_id or "*"
-        if websocket in self.active.get(key, set()):
-            self.active[key].remove(websocket)
+    async def disconnect(self, websocket: WebSocket):
+        async with self._lock:
+            self._all_subs.discard(websocket)
+            for did, s in list(self._device_subs.items()):
+                if websocket in s:
+                    s.discard(websocket)
+                    if not s:
+                        del self._device_subs[did]
 
-    async def broadcast(self, device_id: str, payload: dict):
-        # send to subscribers of this device AND to wildcard '*'
-        targets = set(self.active.get(device_id, set())) | set(self.active.get("*", set()))
-        for ws in list(targets):
+    async def broadcast(self, device_id: Optional[str], payload: dict):
+        """
+        Envía payload (dict) a subscriptores de device_id y a subscriptores globales.
+        Convierte payload a JSON (string) antes de enviar.
+        """
+        msg = json.dumps(payload, default=str)
+        # snapshot recipients under lock
+        async with self._lock:
+            recipients = []
+            if device_id:
+                recipients.extend(list(self._device_subs.get(str(device_id), [])))
+            recipients.extend(list(self._all_subs))
+
+        # send concurrently, limpiando websockets caídos
+        if not recipients:
+            return
+
+        async def _safe_send(ws: WebSocket):
             try:
-                await ws.send_json(payload)
+                await ws.send_text(msg)
             except Exception:
-                # cleanup broken sockets
-                for key, group in list(self.active.items()):
-                    if ws in group:
-                        group.remove(ws)
+                # si falla al enviar, cerramos y removemos
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+                await self._remove_ws(ws)
 
+        await asyncio.gather(*[_safe_send(ws) for ws in recipients], return_exceptions=True)
+
+    async def _remove_ws(self, ws: WebSocket):
+        async with self._lock:
+            self._all_subs.discard(ws)
+            for did, s in list(self._device_subs.items()):
+                if ws in s:
+                    s.discard(ws)
+                    if not s:
+                        del self._device_subs[did]
+
+# instancia exportada
 manager = ConnectionManager()
 
-# ----- WebSocket: /ws/live?device_id=abc -----
+# ---------- WebSocket: realtime viewer ----------
+
 @router.websocket("/ws/live")
-async def ws_live(websocket: WebSocket, device_id: Optional[str] = Query(default=None)):
-    await manager.connect(websocket, device_id)
+async def ws_live(websocket: WebSocket):
+    """
+    Viewer-only WebSocket (humans). Auth via access_token query param.
+    Subscribes this connection to the ConnectionManager (specific device or all).
+    """
+    q = websocket.query_params
+    device_id = q.get("device_id")  # optional: if omitted, subscribe to all
+
+    # authenticate as user (NOT device)
     try:
+        _ = _verify_user_access_token(_extract_user_access_token(q))
+    except HTTPException:
+        # no leak over handshake
+        await websocket.close(code=1008)
+        return
+
+    # validate device_id if present
+    if device_id:
+        try:
+            UUID(device_id)
+        except Exception:
+            await websocket.close(code=1008)
+            return
+
+    # register in el manager (manager.accept() hace websocket.accept())
+    await manager.connect(websocket, device_id)
+
+    try:
+        # simplemente mantenemos la conexión viva y escuchamos desconexiones/keepalives
         while True:
-            # optional: receive pings/commands (we ignore for now)
+            # algunos clientes mandan pings/keepalives; nosotros los ignoramos
             await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket, device_id)
+        pass
+    except Exception:
+        pass
+    finally:
+        await manager.disconnect(websocket)
 
-def is_valid_uuid(value: str) -> bool:
-    try:
-        UUID(str(value))
-        return True
-    except ValueError:
-        return False
-    
-# ----- Ingest telemetry (POSTed by your devices) -----
-@router.post('/api/v1/telemetry')
+# ---------- Ingest telemetry (devices) ----------
+@router.post("/api/v1/telemetry", status_code=202)
 async def ingest_telemetry(
     payload: TelemetryIn,
-    token: str | None = None,
+    token: str | None = Header(default=None, alias="X-Device-Token"),
     db: Session = Depends(get_db)
 ):
-    print(">>> Expected token:", settings.DEVICE_TOKEN)
-    print(">>> Received token:", token)
-    verify_device_token(token or '')
+    device_uuid = UUID(payload.device_id)
+    device = db.query(models.Device).filter(models.Device.id == device_uuid).one_or_none()
+    if device is None:
+        raise HTTPException(status_code=404, detail="device not found")
 
-    m = models.Measurement(
-        time=payload.timestamp,
-        device_id = UUID(payload.device_id) if is_valid_uuid(payload.device_id) else uuid.uuid4(),
-        temperature_c=payload.measurements.temperature_c,
-        relative_humidity_pct=payload.measurements.relative_humidity_pct,
-        solar_radiance_w_m2=payload.measurements.solar_radiance_w_m2,
-        wind_speed_m_s=payload.measurements.wind_speed_m_s,
-        wind_direction_deg=payload.measurements.wind_direction_deg,
-        battery_v=payload.measurements.battery_v,
-        meta=payload.meta
-    )
-    db.add(m)
-    db.commit()
+    _verify_device_token_for_device(token, device)
 
-    # broadcast to dashboards
-    await manager.broadcast(
-        device_id=payload.device_id,
-        payload={
-            "type": "measurement",
-            "device_id": payload.device_id,
-            "at": payload.timestamp.isoformat(),
-            "data": payload.measurements.model_dump(),
-        }
-    )
-    return {'status': 'ok'}
+    job_payload = {
+        "device_id": str(device_uuid),
+        "message_id": payload.message_id,
+        "timestamp": payload.timestamp.isoformat(),
+        "measurements": payload.measurements.model_dump(),
+        "meta": payload.meta,
+    }
+    process_measurement.delay(job_payload)
+    return {"status": "accepted"}
 
-# ----- Read models → JSON helper -----
+# ---------- Helpers to serialize DB rows ----------
 def serialize_measurement(row: models.Measurement) -> dict:
     return {
         "id": row.id,
-        "time": row.time.isoformat(),
-        "device_id": row.device_id,
+        "time": row.time.isoformat() if row.time else None,
+        "device_id": str(row.device_id),
         "temperature_c": row.temperature_c,
         "relative_humidity_pct": row.relative_humidity_pct,
         "solar_radiance_w_m2": row.solar_radiance_w_m2,
@@ -132,22 +228,22 @@ def serialize_measurement(row: models.Measurement) -> dict:
         "wind_direction_deg": row.wind_direction_deg,
         "battery_v": row.battery_v,
         "meta": row.meta,
+        "message_id": row.message_id,
     }
 
-# ----- Latest measurement for a device -----
+# ---------- Historical APIs for the frontend ----------
 @router.get("/api/v1/devices/{device_id}/latest")
 def get_latest(device_id: UUID, db: Session = Depends(get_db)):
     row = (
         db.query(models.Measurement)
         .filter(models.Measurement.device_id == device_id)
-        .order_by(models.Measurement.time.desc())
+        .order_by(models.Measurement.time.desc(), models.Measurement.id.desc())
         .first()
     )
     if not row:
         raise HTTPException(status_code=404, detail="No data for device")
     return serialize_measurement(row)
 
-# ----- Summary (min/max/avg over last N hours; default 24h) -----
 @router.get("/api/v1/devices/{device_id}/summary")
 def get_summary(device_id: UUID, hours: int = 24, db: Session = Depends(get_db)):
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -180,7 +276,7 @@ def get_summary(device_id: UUID, hours: int = 24, db: Session = Depends(get_db))
         return {"min": min_v, "max": max_v, "avg": avg_v}
 
     return {
-        "device_id": device_id,
+        "device_id": str(device_id),
         "window_hours": hours,
         "temperature_c": pack(q[0], q[1], q[2]),
         "relative_humidity_pct": pack(q[3], q[4], q[5]),
@@ -188,3 +284,4 @@ def get_summary(device_id: UUID, hours: int = 24, db: Session = Depends(get_db))
         "wind_speed_m_s": pack(q[9], q[10], q[11]),
         "wind_direction_deg": pack(q[12], q[13], q[14]),
     }
+

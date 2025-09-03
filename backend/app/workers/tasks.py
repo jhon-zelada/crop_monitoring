@@ -1,39 +1,84 @@
+# app/workers/tasks.py
+import json
+from uuid import UUID
+from datetime import datetime
+import redis
+from sqlalchemy.exc import IntegrityError
+
 from app.workers.celery_app import celery
-from app.utils.s3 import get_s3_client
-from PIL import Image
-from io import BytesIO
-import os
+from app.db.session import SessionLocal
+from app.db import models
+from app.core.config import settings
 
-@celery.task(bind=True)
-def process_image(self, image_id: str, s3_key: str):
-    """Simple stub detection: download image, run a fake detector, keep or delete based on fake detection."""
-    s3 = get_s3_client()
-    bucket = os.environ.get('MINIO_BUCKET', 'crop-images')
+# blocking redis client for celery worker
+redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
-    obj = s3.get_object(Bucket=bucket, Key=s3_key)
-    body = obj['Body'].read()
+@celery.task(bind=True, max_retries=3, acks_late=True)
+def process_measurement(self, payload: dict):
+    """
+    Process a single telemetry measurement:
+      - validate/dedupe
+      - insert into DB
+      - publish to Redis pubsub for realtime WS consumers
+    """
+    db = SessionLocal()
+    try:
+        device_id = payload.get("device_id")
+        message_id = payload.get("message_id")
 
-    # load image
-    img = Image.open(BytesIO(body))
+        # Validate device_id
+        try:
+            device_uuid = UUID(device_id)
+        except Exception:
+            return {"error": "invalid device_id"}
 
-    # fake detection: keep only if mean brightness below a threshold (example)
-    grayscale = img.convert('L')
-    stat = grayscale.getextrema()
-    mean = sum(stat)/2
-    detected = mean < 250  # this is a dummy rule; replace with ML model
+        # Build row
+        m = models.Measurement(
+            time=datetime.fromisoformat(payload["timestamp"]) if isinstance(payload["timestamp"], str) else payload["timestamp"],
+            device_id=device_uuid,
+            message_id=message_id,
+            temperature_c=payload["measurements"].get("temperature_c"),
+            relative_humidity_pct=payload["measurements"].get("relative_humidity_pct"),
+            solar_radiance_w_m2=payload["measurements"].get("solar_radiance_w_m2"),
+            wind_speed_m_s=payload["measurements"].get("wind_speed_m_s"),
+            wind_direction_deg=payload["measurements"].get("wind_direction_deg"),
+            battery_v=payload["measurements"].get("battery_v"),
+            meta=payload.get("meta"),
+        )
 
-    if detected:
-        # generate thumbnail and store
-        thumb = img.copy()
-        thumb.thumbnail((640, 480))
-        buf = BytesIO()
-        thumb.save(buf, format='JPEG', quality=75)
-        buf.seek(0)
-        thumb_key = s3_key.replace('.jpg', '.thumb.jpg')
-        s3.put_object(Bucket=bucket, Key=thumb_key, Body=buf.read(), ContentType='image/jpeg')
-        # update DB row (left as an exercise to connect DB or signal via API)
-        return {'status': 'kept', 'thumb': thumb_key}
-    else:
-        # delete object
-        s3.delete_object(Bucket=bucket, Key=s3_key)
-        return {'status': 'discarded'}
+        db.add(m)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            # likely duplicate message_id
+            return {"status": "duplicate", "message_id": message_id}
+
+        # Prepare stable pubsub JSON
+        pub = {
+            "type": "measurement",
+            "device_id": str(device_uuid),
+            "time": m.time.isoformat(),
+            "data": {
+                "temperature_c": m.temperature_c,
+                "relative_humidity_pct": m.relative_humidity_pct,
+                "solar_radiance_w_m2": m.solar_radiance_w_m2,
+                "wind_speed_m_s": m.wind_speed_m_s,
+                "wind_direction_deg": m.wind_direction_deg,
+                "battery_v": m.battery_v,
+            },
+            "meta": m.meta,
+            "message_id": message_id,
+        }
+
+        # publish per-device channel and global channel
+        redis_client.publish(f"telemetry:{device_uuid}", json.dumps(pub))
+        redis_client.publish("telemetry:all", json.dumps(pub))
+
+        return {"status": "ok", "id": m.id}
+
+    except Exception as exc:
+        db.rollback()
+        raise self.retry(exc=exc, countdown=5)
+    finally:
+        db.close()

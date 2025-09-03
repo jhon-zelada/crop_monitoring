@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, Float, JSON, ForeignKey, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, Float, JSON, ForeignKey, Boolean, Index, BigInteger, Identity
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from sqlalchemy.sql import func
@@ -15,8 +15,11 @@ class Device(Base):
 
 class Measurement(Base):
     __tablename__ = "measurements"
-    time = Column(DateTime(timezone=True), primary_key=True)
-    device_id = Column(UUID(as_uuid=True), ForeignKey('devices.id'), primary_key=True)
+    # new integer primary key (easier for migrations / ORM)
+    id = Column(BigInteger, primary_key=True, server_default=Identity(start=1))
+    time = Column(DateTime(timezone=True), nullable=False, index=True)
+    device_id = Column(UUID(as_uuid=True), ForeignKey('devices.id'), nullable=False, index=True)
+    message_id = Column(String, unique=True, index=True, nullable=True)  # dedupe token
     temperature_c = Column(Float)
     relative_humidity_pct = Column(Float)
     solar_radiance_w_m2 = Column(Float)
@@ -24,6 +27,7 @@ class Measurement(Base):
     wind_direction_deg = Column(Float)
     battery_v = Column(Float)
     meta = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class CameraSession(Base):
     __tablename__ = 'camera_sessions'
@@ -61,3 +65,5 @@ class Alert(Base):
     payload = Column(JSON)
     acknowledged = Column(Boolean, default=False)
     acknowledged_by = Column(String)
+
+Index("ix_measurements_device_time", Measurement.device_id, Measurement.time.desc())

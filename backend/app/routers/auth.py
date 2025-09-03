@@ -13,7 +13,7 @@ async def login(payload: LoginIn):
     # demo only - replace with real DB + hashed password check
     if payload.username == "admin" and payload.password == "secret":
         return {
-            "access_token": "fake-jwt-token",
+            "access_token": "supersecrettoken123",
             "token_type": "bearer",
             "user": {"name": "Admin"}
         }
