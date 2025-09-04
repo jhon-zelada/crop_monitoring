@@ -40,7 +40,7 @@ throw new Error(payload.detail || 'Credenciales inválidas');
 
 const payload = await res.json();
 const token = payload.access_token || payload.token || '';
-localStorage.setItem('token', token);
+localStorage.setItem('access_token', token);
 // optionally save user info as well
 if (payload.user) localStorage.setItem('user', JSON.stringify(payload.user));
 

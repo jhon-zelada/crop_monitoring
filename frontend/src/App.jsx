@@ -29,7 +29,7 @@ export default function App() {
   // auth: simple token-based gating (replace with your real auth flow)
   const [authenticated, setAuthenticated] = React.useState(() => {
     try {
-      return !!localStorage.getItem("token");
+      return !!localStorage.getItem("access_token");
     } catch {
       return false;
     }

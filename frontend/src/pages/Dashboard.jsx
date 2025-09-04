@@ -10,10 +10,10 @@ export default function Dashboard() {
 
   const [now, setNow] = React.useState(new Date());
   const [metrics, setMetrics] = React.useState([
-    { key: "temperature_c",    title: "Temperatura",   value: null, unit: "°C",  min: null, max: null, prom: null },
-    { key: "relative_humidity_pct", title: "Humedad Rel.", value: null, unit: "%",  min: null, max: null, prom: null },
-    { key: "solar_radiance_w_m2",   title: "Radiación Solar", value: null, unit: "W/m²", min: null, max: null, prom: null },
-    { key: "wind_speed_m_s",   title: "Vel. Viento",   value: null, unit: "m/s", min: null, max: null, prom: null },
+    { key: "temperature_c", title: "Temperatura", value: null, unit: "°C", min: -5, prom: 18, max: 35 },
+    { key: "relative_humidity_pct", title: "Humedad Rel.", value: null, unit: "%", min: 20, prom: 50, max: 90 },
+    { key: "solar_radiance_w_m2", title: "Radiación Solar", value: null, unit: "W/m²", min: 0, prom: 600, max: 1200 },
+    { key: "wind_speed_m_s", title: "Vel. Viento", value: null, unit: "m/s", min: 0, prom: 3, max: 15 },
     { key: "wind_direction_deg", title: "Dir. Viento", value: null, unit: "°" },
   ]);
 
@@ -39,9 +39,6 @@ export default function Dashboard() {
           return {
             ...m,
             value: typeof v === "number" ? Number(v) : m.value,
-            min:  typeof s.min === "number" ? Number(s.min) : m.min,
-            max:  typeof s.max === "number" ? Number(s.max) : m.max,
-            prom: typeof s.avg === "number" ? Number(s.avg) : m.prom,
           };
         })
       );
@@ -110,7 +107,7 @@ export default function Dashboard() {
           style={{ padding: 10, borderRadius: 8, border: "1px solid var(--card-border)" }}
         >
           <option value="">All devices</option>
-          <option value={DEFAULT_DEVICE}>Parcela 1 - Quinua ({DEFAULT_DEVICE})</option>
+          <option value={DEFAULT_DEVICE}>Parcela 1 - Quinua</option>
           {/* Añade aquí más opciones con UUID reales */}
         </select>
 

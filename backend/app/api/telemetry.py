@@ -20,13 +20,17 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.db import models
 
+# Auth deps / WS token verify
+from app.deps.auth import get_current_user
+from app.core.security import verify_ws_token
+
 # celery task
 from app.workers.tasks import process_measurement
 
 router = APIRouter()
 
 # ---------- Config helpers ----------
-ALLOW_GLOBAL_DEVICE_TOKEN = getattr(settings, "ALLOW_GLOBAL_DEVICE_TOKEN", False)
+ALLOW_GLOBAL_DEVICE_TOKEN = getattr(settings, "ALLOW_GLOBAL_DEVICE_TOKEN", True)
 
 # ---------- Schemas ----------
 class Measurements(BaseModel):
@@ -66,31 +70,18 @@ def _verify_device_token_for_device(token: str | None, device: models.Device):
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid device token")
 
 def _extract_user_access_token(query_params) -> Optional[str]:
+    # keep helper for compatibility (reads ?access_token=...)
     return query_params.get("access_token")
 
-def _verify_user_access_token(token: Optional[str]) -> dict:
-    if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing access token")
-    expected = "supersecrettoken123"
-    if token != expected:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
-    return {"sub": "admin", "role": "admin"}
 
 # ---------- Connection manager (exportado como `manager`) ----------
 class ConnectionManager:
-    """
-    Mantiene websockets por device_id y permite broadcast a:
-      - subscriptores específicos (device_id)
-      - subscriptores globales (device_id == None)
-    """
     def __init__(self):
         self._device_subs: dict[str, set[WebSocket]] = defaultdict(set)
         self._all_subs: set[WebSocket] = set()
         self._lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket, device_id: Optional[str]):
-        # No hacemos websocket.accept() aquí si prefieres aceptarlo en el endpoint;
-        # lo aceptamos aquí para centralizar.
         await websocket.accept()
         async with self._lock:
             if device_id:
@@ -108,19 +99,12 @@ class ConnectionManager:
                         del self._device_subs[did]
 
     async def broadcast(self, device_id: Optional[str], payload: dict):
-        """
-        Envía payload (dict) a subscriptores de device_id y a subscriptores globales.
-        Convierte payload a JSON (string) antes de enviar.
-        """
         msg = json.dumps(payload, default=str)
-        # snapshot recipients under lock
         async with self._lock:
             recipients = []
             if device_id:
                 recipients.extend(list(self._device_subs.get(str(device_id), [])))
             recipients.extend(list(self._all_subs))
-
-        # send concurrently, limpiando websockets caídos
         if not recipients:
             return
 
@@ -128,7 +112,6 @@ class ConnectionManager:
             try:
                 await ws.send_text(msg)
             except Exception:
-                # si falla al enviar, cerramos y removemos
                 try:
                     await ws.close()
                 except Exception:
@@ -146,29 +129,38 @@ class ConnectionManager:
                     if not s:
                         del self._device_subs[did]
 
+
 # instancia exportada
 manager = ConnectionManager()
 
-# ---------- WebSocket: realtime viewer ----------
 
+# ---------- WebSocket: realtime viewer ----------
 @router.websocket("/ws/live")
 async def ws_live(websocket: WebSocket):
     """
-    Viewer-only WebSocket (humans). Auth via access_token query param.
+    Viewer-only WebSocket (humans). Auth via access_token query param (JWT).
     Subscribes this connection to the ConnectionManager (specific device or all).
     """
     q = websocket.query_params
     device_id = q.get("device_id")  # optional: if omitted, subscribe to all
 
-    # authenticate as user (NOT device)
-    try:
-        _ = _verify_user_access_token(_extract_user_access_token(q))
-    except HTTPException:
+    # Validate access token passed as ?access_token=...
+    token = _extract_user_access_token(q)
+    subject = verify_ws_token(token)
+    if subject is None:
         # no leak over handshake
         await websocket.close(code=1008)
         return
 
-    # validate device_id if present
+    # OPTIONAL: permission check
+    # If you want to enforce that only certain users can subscribe to a given device,
+    # you should check ownership or membership here (query DB).
+    # Note: websockets cannot use FastAPI Depends easily, so open a DB session manually if needed.
+    # Example (pseudo):
+    #   async with some_session() as db: check device.owner==subject -> if not, close
+    # For now we accept authenticated users; add checks if required.
+
+    # validate device_id format
     if device_id:
         try:
             UUID(device_id)
@@ -176,13 +168,12 @@ async def ws_live(websocket: WebSocket):
             await websocket.close(code=1008)
             return
 
-    # register in el manager (manager.accept() hace websocket.accept())
+    # register in manager (manager.connect accepts and registers)
     await manager.connect(websocket, device_id)
 
     try:
-        # simplemente mantenemos la conexión viva y escuchamos desconexiones/keepalives
         while True:
-            # algunos clientes mandan pings/keepalives; nosotros los ignoramos
+            # wait for client pings or control messages (we ignore content)
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass
@@ -191,6 +182,7 @@ async def ws_live(websocket: WebSocket):
     finally:
         await manager.disconnect(websocket)
 
+
 # ---------- Ingest telemetry (devices) ----------
 @router.post("/api/v1/telemetry", status_code=202)
 async def ingest_telemetry(
@@ -198,6 +190,12 @@ async def ingest_telemetry(
     token: str | None = Header(default=None, alias="X-Device-Token"),
     db: Session = Depends(get_db)
 ):
+    """
+    Device ingestion endpoint:
+      - validates device exists
+      - validates device's token (per-device or global in dev)
+      - pushes a Celery job for processing (DB insert + Redis pub)
+    """
     device_uuid = UUID(payload.device_id)
     device = db.query(models.Device).filter(models.Device.id == device_uuid).one_or_none()
     if device is None:
@@ -215,6 +213,7 @@ async def ingest_telemetry(
     process_measurement.delay(job_payload)
     return {"status": "accepted"}
 
+
 # ---------- Helpers to serialize DB rows ----------
 def serialize_measurement(row: models.Measurement) -> dict:
     return {
@@ -231,9 +230,14 @@ def serialize_measurement(row: models.Measurement) -> dict:
         "message_id": row.message_id,
     }
 
-# ---------- Historical APIs for the frontend ----------
+
+# ---------- Historical APIs for the frontend (protected) ----------
 @router.get("/api/v1/devices/{device_id}/latest")
-def get_latest(device_id: UUID, db: Session = Depends(get_db)):
+def get_latest(device_id: UUID, db: Session = Depends(get_db), user = Depends(get_current_user)):
+    """
+    Protected: only authenticated users (use `user` to enforce more fine-grained permissions).
+    """
+    # TODO: enforce user->device access here if you have device ownership
     row = (
         db.query(models.Measurement)
         .filter(models.Measurement.device_id == device_id)
@@ -244,8 +248,13 @@ def get_latest(device_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No data for device")
     return serialize_measurement(row)
 
+
 @router.get("/api/v1/devices/{device_id}/summary")
-def get_summary(device_id: UUID, hours: int = 24, db: Session = Depends(get_db)):
+def get_summary(device_id: UUID, hours: int = 24, db: Session = Depends(get_db), user = Depends(get_current_user)):
+    """
+    Protected endpoint: returns min/max/avg over a sliding window.
+    """
+    # TODO: enforce user->device access here if you have device ownership
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     q = (
         db.query(
@@ -284,4 +293,3 @@ def get_summary(device_id: UUID, hours: int = 24, db: Session = Depends(get_db))
         "wind_speed_m_s": pack(q[9], q[10], q[11]),
         "wind_direction_deg": pack(q[12], q[13], q[14]),
     }
-

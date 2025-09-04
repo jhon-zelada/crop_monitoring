@@ -1,40 +1,93 @@
 import React from "react";
 import ImageModal from "../components/ImageModal";
 
-/* dummy images (replace with actual s3 URLs when you integrate) */
-const SAMPLE_IMAGES = Array.from({ length: 8 }).map((_, i) => ({
-  id: i + 1,
-  src: `https://picsum.photos/seed/crop${i+1}/800/600`,
-  analysis: i % 3 === 0 ? { label: "Plaga", confidence: 0.87 } : null
-}));
-
 export default function Images() {
+  const [images, setImages] = React.useState([]); // uploaded images
   const [selected, setSelected] = React.useState(null);
+
+  // handle uploads
+  const handleUpload = (e) => {
+    const files = Array.from(e.target.files);
+    const newImages = files.map((file, i) => ({
+      id: `${file.name}-${i}-${Date.now()}`,
+      src: URL.createObjectURL(file), // previewable blob URL
+      analysis: null, // can fill in later if you do AI analysis
+      name: file.name,
+    }));
+    setImages((prev) => [...prev, ...newImages]);
+  };
 
   return (
     <div>
       <h2 style={{ marginBottom: 12 }}>Visor de Imágenes</h2>
 
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-        <div>
-          <select style={{ padding: 8, borderRadius: 8 }}>
-            <option>Últimas sesiones</option>
-          </select>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button style={{ padding: "8px 12px", borderRadius: 8, background: "#e6eef4" }}>Filtrar</button>
-        </div>
+      {/* Upload control */}
+      <div style={{ marginBottom: 16 }}>
+        <label
+          htmlFor="file-upload"
+          style={{
+            display: "inline-block",
+            padding: "10px 16px",
+            background: "var(--accent)",
+            color: "#fff",
+            borderRadius: 8,
+            cursor: "pointer",
+            fontWeight: 600,
+          }}
+        >
+          Subir Imágenes
+        </label>
+        <input
+          id="file-upload"
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={handleUpload}
+          className="visually-hidden"
+        />
       </div>
 
-      <div className="gallery">
-        {SAMPLE_IMAGES.map((img) => (
-          <div key={img.id} className="thumb card" onClick={() => setSelected(img)} style={{ cursor: "pointer" }}>
-            <img src={img.src} alt={`thumb-${img.id}`} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius:8 }} />
-          </div>
-        ))}
-      </div>
+      {images.length === 0 ? (
+        <div
+          style={{
+            textAlign: "center",
+            padding: "40px 20px",
+            border: "2px dashed var(--card-border)",
+            borderRadius: 12,
+            color: "var(--muted)",
+          }}
+        >
+          No hay imágenes todavía. Sube algunas para comenzar.
+        </div>
+      ) : (
+        <div className="gallery">
+          {images.map((img) => (
+            <div
+              key={img.id}
+              className="thumb card"
+              onClick={() => setSelected(img)}
+              style={{ cursor: "pointer" }}
+            >
+              <img
+                src={img.src}
+                alt={img.name}
+                style={{
+                  width: "60%",
+                  height: "60%",
+                  objectFit: "cover",
+                  borderRadius: 8,
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
 
-      <ImageModal src={selected?.src} analysis={selected?.analysis} onClose={() => setSelected(null)} />
+      <ImageModal
+        src={selected?.src}
+        analysis={selected?.analysis}
+        onClose={() => setSelected(null)}
+      />
     </div>
   );
 }

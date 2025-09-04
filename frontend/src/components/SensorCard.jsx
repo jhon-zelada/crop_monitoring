@@ -31,7 +31,7 @@ function computeStatus(title, value) {
   if (title === "Radiación Solar") {
     // typical clear-sky midday ≈ 800–1100 W/m²; photosynthesis limited at very low irradiance
     if (value >= 200 && value <= 1100) return { level: "good", text: "Normal" };
-    if ((value >= 100 && value < 200) || (value > 1100 && value <= 1300)) return { level: "warn", text: "Advertencia" };
+    if ((value >= 100 && value < 200) || (value > 1100 && value <= 1200)) return { level: "warn", text: "Advertencia" };
     return { level: "bad", text: "Alerta" };
   }
 

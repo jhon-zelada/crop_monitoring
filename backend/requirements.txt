@@ -11,3 +11,5 @@ Pillow==10.0.0
 requests==2.31.0
 alembic==1.11.1
 pydantic-settings>=2.0.0
+python-jose[cryptography]==3.3.0       # JWT encode/verify (HS256)
+passlib[bcrypt]==1.7.4                 # secure password hashing if you want to store hashed passwords

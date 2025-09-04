@@ -3,7 +3,7 @@ const BASE = import.meta.env.VITE_BACKEND_URL || ""; // e.g. "http://localhost:8
 // RECOMENDACIÓN: en desarrollo define VITE_WS_URL="http://localhost:8000" o "ws://localhost:8000"
 
 function authHeaders() {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("access_token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -30,7 +30,7 @@ export async function fetchSummary(deviceId, hours = 24) {
  * - uses VITE_WS_URL if provided; otherwise assumes backend at same host on port 8000
  */
 export function openLive(deviceId) {
-  const token = localStorage.getItem("token") || ""; // asegúrate de guardar token para pruebas (ej: 'supersecrettoken123')
+  const token = localStorage.getItem("access_token") || ""; // asegúrate de guardar token para pruebas (ej: 'supersecrettoken123')
   const params = new URLSearchParams();
   if (deviceId) params.set("device_id", deviceId);
   if (token) params.set("access_token", token); // <- importante: backend espera access_token
