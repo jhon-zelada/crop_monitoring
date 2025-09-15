@@ -121,10 +121,12 @@ async def stop_redis_pubsub():
         except Exception:
             logger.exception("Error waiting for redis reader task to finish")
 
-# CORS (dev-friendly; tighten in prod)
+# allow only your frontend origin so cookies work across ports
+FRONTEND_ORIGIN = "http://localhost:5173"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[FRONTEND_ORIGIN],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
