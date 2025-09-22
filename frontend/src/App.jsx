@@ -1,4 +1,4 @@
-// File: src/App.jsx (drop-in replacement; keeps your existing pages & components, adds auth gating)
+// File: src/App.jsx (updated — adds public landing page, consistent token handling)
 import React from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -9,12 +9,16 @@ import Alertas from "./pages/Alertas";
 import Images from "./pages/Images";
 import GraficoSensores from "./pages/GraficoSensores";
 import LoginPage from "./pages/Login";
+import LandingPage from "./pages/Landing";
 
 export default function App() {
-  // view: current active page key
+  // main app view
   const [view, setView] = React.useState("dashboard");
 
-  // collapsed: sidebar compact state (persisted)
+  // public view when unauthenticated: 'landing' | 'login'
+  const [publicView, setPublicView] = React.useState("landing");
+
+  // sidebar collapsed persisted
   const [collapsed, setCollapsed] = React.useState(() => {
     try {
       return localStorage.getItem("sidebar.collapsed") === "true";
@@ -23,10 +27,10 @@ export default function App() {
     }
   });
 
-  // lastUpdated: dynamic timestamp (update when user presses refresh)
+  // dynamic timestamp
   const [lastUpdated, setLastUpdated] = React.useState(null);
 
-  // auth: simple token-based gating (replace with your real auth flow)
+  // token-based gating (keeps using 'access_token')
   const [authenticated, setAuthenticated] = React.useState(() => {
     try {
       return !!localStorage.getItem("access_token");
@@ -35,31 +39,48 @@ export default function App() {
     }
   });
 
-  // example user (avatar or initials)
-  const user = {
+  // user (default); you can replace with server-provided payload.user on login
+  const [user, setUser] = React.useState({
     name: "Carlos Mendoza",
     avatar: null,
     email: "carlos.mendoza@example.com",
-    accountType: "Administrador"
-  };
+    accountType: "Administrador",
+  });
 
-  // login callback from LoginPage
+  // callback after successful login (LoginPage calls onLogin(payload))
   const handleLogin = (payload) => {
-    // payload is whatever your backend returned (user, token...)
+    // Save token if backend didn't already (LoginPage already stores it but this is defensive)
+    try {
+      const token = payload?.access_token || payload?.token || null;
+      if (token) localStorage.setItem("access_token", token);
+    } catch {}
+
+    // store user if available
+    if (payload?.user) {
+      setUser(payload.user);
+      try { localStorage.setItem('user', JSON.stringify(payload.user)); } catch {}
+    }
+
     setAuthenticated(true);
-    // optional: set user info from payload.user
+    // ensure UI starts at dashboard after login
+    setView("dashboard");
   };
 
   const handleLogout = () => {
-    try { localStorage.removeItem('token'); } catch {}
+    // keep key name consistent: remove access_token (and optionally user)
+    try {
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("user");
+    } catch {}
     setAuthenticated(false);
+    // show landing after logout
+    setPublicView("landing");
   };
 
-  // refresh handler (could call backend here)
+  // refresh handler
   const handleRefresh = async () => {
-    // simulate update (replace with real API call)
     setLastUpdated(new Date());
-    // e.g. await api.fetchLatest();
+    // place for real API refresh calls
   };
 
   React.useEffect(() => {
@@ -85,11 +106,24 @@ export default function App() {
     }
   };
 
-  // If the user is not authenticated, show the login page
+  // --- public flow: landing or login ---
   if (!authenticated) {
-    return <LoginPage onLogin={handleLogin} />;
+    // If publicView === "login" show the login form immediately.
+    // Provide onBack so the Login page can return to landing.
+    if (publicView === "login") {
+      return (
+        <LoginPage
+          onLogin={handleLogin}
+          openForm={true}
+          onBack={() => setPublicView("landing")}
+        />
+      );
+    }
+    // otherwise show landing
+    return <LandingPage onLoginClick={() => setPublicView("login")} />;
   }
 
+  // --- authenticated app ---
   return (
     <div className="app-root">
       <Sidebar
