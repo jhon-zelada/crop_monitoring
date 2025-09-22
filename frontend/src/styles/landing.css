@@ -1,0 +1,104 @@
+:root{
+  --max-width: 1150px;
+  --gap: 20px;
+  --accent: #10B981;
+  --muted: #6b7280;
+  --card-bg: #ffffff;
+  --card-border: #e6eef0;
+  --radius: 12px;
+}
+
+/* Contenedor principal sencillo (no lo hacemos flex por defecto) */
+.sq-container {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 18px;
+}
+
+/* Landing root */
+.sq-landing { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; color: #0f172a; }
+
+/* ---------- Header ---------- */
+.sq-header {
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+/* header-inner ABRAZA todo el ancho disponible pero centrado con max-width */
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 70px;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 18px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-logo {
+  width: 40px; height: 40px; border-radius: 8px; display:flex; align-items:center; justify-content:center;
+  background: var(--accent); color:#fff; font-weight:700; font-size:14px;
+}
+.brand-name { font-weight:700; font-size:18px; }
+
+/* Header button (derecha) */
+.header-actions { display:flex; align-items:center; gap:8px; }
+.btn-login {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn-login:hover { background: rgba(16,185,129,0.08); }
+
+/* ---------- Hero ---------- */
+/* (resto de CSS que ya tienes) */
+.hero-row { margin-top: 32px; width: 100%; display: flex; justify-content: center; }
+.hero { position: relative; width: 100%; max-width: var(--max-width); height: 65vh; border-radius: 16px; overflow:hidden; box-shadow: 0 6px 22px rgba(15,23,42,0.06); }
+.hero-image { width:100%; height:100%; object-fit:cover; display:block; }
+.hero-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px; background: rgba(0,0,0,0.35); color:#fff; }
+.hero-title { font-size:48px; margin-bottom:12px; font-weight:800; }
+.hero-text { max-width:750px; margin-bottom:20px; font-size:18px; }
+.hero-cta .btn-primary { padding:14px 22px; border-radius:10px; font-weight:700; background:var(--accent); border:none; color:#fff; cursor:pointer; }
+
+/* How + Cards (igual que antes, adaptadas) */
+.how-row { margin-top:50px; text-align:center; }
+.how-title { font-size:28px; font-weight:700; margin-bottom:12px; }
+.how-desc { max-width:850px; color:var(--muted); margin: 0 auto; }
+
+.sq-cards-row { margin-top:40px; margin-bottom:70px; width:100%; }
+.sq-cards-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap: var(--gap); width:100%; max-width:var(--max-width); margin: 0 auto; }
+.sq-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:var(--radius); padding:16px; text-align:center; display:flex; flex-direction:column; align-items:center; }
+.sq-card-media { width:100%; height:160px; border-radius:10px; overflow:hidden; margin-bottom:12px; }
+.sq-card-media img { width:100%; height:100%; object-fit:cover; display:block; }
+.sq-card-title { font-size:18px; font-weight:700; margin-bottom:8px; }
+.sq-card-desc { color:var(--muted); font-size:15px; max-width:90%; margin:0 auto; }
+
+/* Footer */
+.sq-footer { border-top:1px solid #f3f6f7; padding:14px 0; text-align:center; color:#7b8791; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .hero-title { font-size: 32px; }
+  .hero-text { font-size: 16px; }
+}
+@media (max-width: 640px) {
+  .header-inner { padding: 0 12px; height: 64px; }
+  .hero-title { font-size: 28px; }
+  .hero-text { font-size: 15px; }
+  .sq-cards-grid { grid-template-columns: 1fr; }
+  .hero { height: 48vh; }
+}

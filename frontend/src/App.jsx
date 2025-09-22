@@ -1,4 +1,4 @@
-// src/App.jsx
+// File: src/App.jsx (updated — adds public landing page, consistent token handling)
 import React from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -9,35 +9,16 @@ import Alertas from "./pages/Alertas";
 import Images from "./pages/Images";
 import GraficoSensores from "./pages/GraficoSensores";
 import LoginPage from "./pages/Login";
-
-/**
- * Minimal JWT helpers (you can move these to src/lib/auth.js and import them instead)
- */
-function parseJwt(token) {
-  if (!token) return null;
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload;
-  } catch (e) {
-    return null;
-  }
-}
-function isTokenExpired(token) {
-  const p = parseJwt(token);
-  if (!p) return true;
-  const exp = typeof p.exp === "number" ? p.exp : parseInt(p.exp, 10);
-  if (!exp || isNaN(exp)) return true;
-  const now = Math.floor(Date.now() / 1000);
-  return now >= exp;
-}
+import LandingPage from "./pages/Landing";
 
 export default function App() {
-  // view: current active page key
+  // main app view
   const [view, setView] = React.useState("dashboard");
 
-  // collapsed: sidebar compact state (persisted)
+  // public view when unauthenticated: 'landing' | 'login'
+  const [publicView, setPublicView] = React.useState("landing");
+
+  // sidebar collapsed persisted
   const [collapsed, setCollapsed] = React.useState(() => {
     try {
       return localStorage.getItem("sidebar.collapsed") === "true";
@@ -46,13 +27,11 @@ export default function App() {
     }
   });
 
-  // lastUpdated: dynamic timestamp (update when user presses refresh)
+  // dynamic timestamp
   const [lastUpdated, setLastUpdated] = React.useState(null);
 
-  // auth state
-  const [authenticated, setAuthenticated] = React.useState(false);
-  const [authLoading, setAuthLoading] = React.useState(true);
-  const [user, setUser] = React.useState(() => {
+  // token-based gating (keeps using 'access_token')
+  const [authenticated, setAuthenticated] = React.useState(() => {
     try {
       const u = localStorage.getItem("user");
       return u ? JSON.parse(u) : null;
@@ -61,113 +40,50 @@ export default function App() {
     }
   });
 
-  // --------- Auth helpers ---------
-  const setSessionFromPayload = (payload) => {
-    // payload: { access_token, user }
-    const token = payload?.access_token || payload?.token;
-    if (token) {
-      try {
-        localStorage.setItem("access_token", token);
-      } catch {}
-    }
+  // user (default); you can replace with server-provided payload.user on login
+  const [user, setUser] = React.useState({
+    name: "Carlos Mendoza",
+    avatar: null,
+    email: "carlos.mendoza@example.com",
+    accountType: "Administrador",
+  });
+
+  // callback after successful login (LoginPage calls onLogin(payload))
+  const handleLogin = (payload) => {
+    // Save token if backend didn't already (LoginPage already stores it but this is defensive)
+    try {
+      const token = payload?.access_token || payload?.token || null;
+      if (token) localStorage.setItem("access_token", token);
+    } catch {}
+
+    // store user if available
     if (payload?.user) {
-      try {
-        localStorage.setItem("user", JSON.stringify(payload.user));
-        setUser(payload.user);
-      } catch {}
-    } else if (token) {
-      // set minimal user object from token `sub`
-      const sub = parseJwt(token)?.sub;
-      if (sub) {
-        const u = { name: sub };
-        try {
-          localStorage.setItem("user", JSON.stringify(u));
-        } catch {}
-        setUser(u);
-      }
+      setUser(payload.user);
+      try { localStorage.setItem('user', JSON.stringify(payload.user)); } catch {}
     }
+
     setAuthenticated(true);
+    // ensure UI starts at dashboard after login
+    setView("dashboard");
   };
 
-  const clearSession = () => {
+  const handleLogout = () => {
+    // keep key name consistent: remove access_token (and optionally user)
     try {
       localStorage.removeItem("access_token");
       localStorage.removeItem("user");
     } catch {}
-    setUser(null);
     setAuthenticated(false);
+    // show landing after logout
+    setPublicView("landing");
   };
 
-  // call at login (LoginPage should call onLogin(payload))
-  const handleLogin = (payload) => {
-    setSessionFromPayload(payload);
+  // refresh handler
+  const handleRefresh = async () => {
+    setLastUpdated(new Date());
+    // place for real API refresh calls
   };
 
-  // logout: ask server to revoke refresh cookie, then clear local session
-  const handleLogout = async () => {
-    try {
-      // call backend to remove refresh cookie and revoke server-side refresh token
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-    } catch (e) {
-      // ignore network errors but still clear client
-      console.warn("logout request failed", e);
-    } finally {
-      clearSession();
-      // optionally navigate to login view
-      setView("dashboard");
-    }
-  };
-
-  // attempt to restore session on app start:
-  React.useEffect(() => {
-    let mounted = true;
-    (async function restore() {
-      setAuthLoading(true);
-      try {
-        const token = localStorage.getItem("access_token");
-        if (token && !isTokenExpired(token)) {
-          // token is valid locally
-          const localUser = JSON.parse(localStorage.getItem("user") || "null");
-          if (mounted) {
-            setUser(localUser || (parseJwt(token)?.sub ? { name: parseJwt(token).sub } : null));
-            setAuthenticated(true);
-            setAuthLoading(false);
-          }
-          return;
-        }
-
-        // token missing or expired -> try refresh with httpOnly cookie
-        const res = await fetch("/api/auth/refresh", {
-          method: "POST",
-          credentials: "include", // send refresh cookie
-          headers: { "Content-Type": "application/json" },
-        });
-
-        if (!mounted) return;
-        if (res.ok) {
-          const payload = await res.json(); // expects { access_token, token_type }
-          if (payload?.access_token) {
-            // persist and set session
-            setSessionFromPayload(payload);
-            setAuthLoading(false);
-            return;
-          }
-        }
-
-        // refresh failed -> ensure we are logged out
-        clearSession();
-      } catch (err) {
-        console.error("restore session failed:", err);
-        clearSession();
-      } finally {
-        if (mounted) setAuthLoading(false);
-      }
-    })();
-
-    return () => { mounted = false; };
-  }, []);
-
-  // persist sidebar collapsed state
   React.useEffect(() => {
     try {
       localStorage.setItem("sidebar.collapsed", collapsed ? "true" : "false");
@@ -197,21 +113,24 @@ export default function App() {
     }
   };
 
-  // show loading screen while restoring session
-  if (authLoading) {
-    return (
-      <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div>Loading…</div>
-      </div>
-    );
-  }
-
-  // If the user is not authenticated, show the login page
+  // --- public flow: landing or login ---
   if (!authenticated) {
-    return <LoginPage onLogin={handleLogin} />;
+    // If publicView === "login" show the login form immediately.
+    // Provide onBack so the Login page can return to landing.
+    if (publicView === "login") {
+      return (
+        <LoginPage
+          onLogin={handleLogin}
+          openForm={true}
+          onBack={() => setPublicView("landing")}
+        />
+      );
+    }
+    // otherwise show landing
+    return <LandingPage onLoginClick={() => setPublicView("login")} />;
   }
 
-  // Authenticated UI
+  // --- authenticated app ---
   return (
     <div className="app-root">
       <Sidebar
