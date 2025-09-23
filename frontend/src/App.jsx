@@ -3,11 +3,12 @@ import React from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 
-import Dashboard from "./pages/Dashboard";
+import Dashboard from "./components/Dashboard";
 import MapaInteractivo from "./pages/MapaInteractivo";
-import Alertas from "./pages/Alertas";
-import Images from "./pages/Images";
-import GraficoSensores from "./pages/GraficoSensores";
+import Alertas from "./components/Alertas";
+import Images from "./components/Images";
+import GraficoSensores from "./components/GraficoSensores";
+import UsersPage from "./components/UsersPage";
 import LoginPage from "./pages/Login";
 import LandingPage from "./pages/Landing";
 
@@ -102,6 +103,13 @@ export default function App() {
         return <Images />;
       case "graficos":
         return <GraficoSensores />;
+      case "usuarios":
+        return <UsersPage />;
+        //return <div>Gestión de Usuarios (próximamente)</div>;
+      case "parcelas":
+        return <div>Gestión de Parcelas (próximamente)</div>;
+      case "permisos":
+        return <div>Gestión de Permisos (próximamente)</div>;
       default:
         return <Dashboard />;
     }
@@ -123,6 +131,7 @@ export default function App() {
     // otherwise show landing
     return <LandingPage onLoginClick={() => setPublicView("login")} />;
   }
+
 
   // --- authenticated app ---
   return (
@@ -150,5 +159,6 @@ export default function App() {
     </div>
   );
 }
+
 
 

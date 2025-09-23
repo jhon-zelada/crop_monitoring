@@ -10,7 +10,7 @@ import json
 import redis.asyncio as aioredis
 import logging
 from app.api.telemetry import manager
-
+from app.core.security import close_redis
 # DB init
 Base.metadata.create_all(bind=engine)
 
@@ -140,3 +140,7 @@ app.include_router(auth.router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await close_redis()

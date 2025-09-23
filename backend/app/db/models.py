@@ -1,8 +1,21 @@
-from sqlalchemy import Column, String, Integer, DateTime, Float, JSON, ForeignKey, Boolean, Index, BigInteger, Identity
+from sqlalchemy import Column, String, Integer, DateTime, Float, JSON, ForeignKey, Boolean, Index, BigInteger, Identity, TIMESTAMP, Text
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from sqlalchemy.sql import func
 from .session import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False)
+    email = Column(String, unique=True, nullable=False)
+    role = Column(String, nullable=False)
+    department = Column(String, nullable=True)
+    status = Column(String, default="activo")
+    password_hash = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    last_login = Column(TIMESTAMP(timezone=True), nullable=True)
 
 class Device(Base):
     __tablename__ = "devices"

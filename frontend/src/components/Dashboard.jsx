@@ -1,6 +1,6 @@
 // frontend/src/pages/Dashboard.jsx
 import React from "react";
-import SensorCard from "../components/SensorCard";
+import SensorCard from "./SensorCard";
 import { fetchLatest, fetchSummary, openLive } from "../lib/api";
 
 export default function Dashboard() {

@@ -7,6 +7,9 @@ const VIEW_LABELS = {
   alertas: "Alertas",
   graficos: "Gráfico de Sensores",
   imagenes: "Visor de Imágenes",
+  usuarios: "Gestión de Usuarios",
+  parcelas: "Gestión de Parcelas",
+  permisos: "Gestión de Permisos",
 };
 
 export default function Topbar({

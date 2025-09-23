@@ -2,29 +2,50 @@
 from fastapi import APIRouter, HTTPException, status, Response, Request, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from datetime import timedelta
+from datetime import datetime, timezone
 from jose import JWTError
+from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
 
 from app.core.config import settings
 from app.core import security
+from app.db.session import get_db
+from app.db import models  # your models module
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 class LoginIn(BaseModel):
-    username: str
+    username: str  # email or username
     password: str
 
 @router.post("/login")
-async def login(payload: LoginIn, response: Response):
-    # Demo only - replace with DB checks + hashed password verification
-    if not (payload.username == "admin" and payload.password == "secret"):
+async def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
+    # Find user by email (case-insensitive)
+    user = db.query(models.User).filter(
+        or_(func.lower(models.User.email) == payload.username.lower(), 
+            func.lower(models.User.name) == payload.username.lower())).one_or_none()
+    if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    user_sub = payload.username  # usually user id or username
+    # verify hashed password
+    if not security.verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    # check status
+    if getattr(user, "status", "activo") != "activo":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
+
+    # update last_login
+    user.last_login = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    # create tokens
+    user_sub = str(user.id)
     access_token = security.create_access_token(user_sub)
     refresh_jti = await security.create_refresh_token(user_sub)
 
-    # Set httpOnly cookie for refresh token. Frontend should send credentials (fetch credentials:'include') on refresh calls.
+    # set refresh cookie (httpOnly)
     max_age = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
     response.set_cookie(
         key="refresh_token",
@@ -37,48 +58,5 @@ async def login(payload: LoginIn, response: Response):
         path=settings.COOKIE_PATH
     )
 
-    return {"access_token": access_token, "token_type": "bearer", "user": {"name": payload.username}}
-
-@router.post("/refresh")
-async def refresh(request: Request, response: Response):
-    """
-    Use the refresh cookie (httpOnly). If valid, rotate token and return new access_token and new refresh cookie.
-    """
-    jti = request.cookies.get("refresh_token")
-    if not jti:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
-
-    subject = await security.get_subject_from_refresh_jti(jti)
-    if not subject:
-        # token absent or expired
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
-
-    # rotate: delete old and create new
-    new_jti = await security.rotate_refresh_token(jti, subject)
-
-    access_token = security.create_access_token(subject)
-
-    max_age = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
-    response.set_cookie(
-        key="refresh_token",
-        value=new_jti,
-        httponly=True,
-        max_age=max_age,
-        expires=max_age,
-        secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE,
-        path=settings.COOKIE_PATH
-    )
-
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@router.post("/logout")
-async def logout(request: Request, response: Response):
-    jti = request.cookies.get("refresh_token")
-    if jti:
-        await security.revoke_refresh_token(jti)
-
-    # clear cookie
-    response.delete_cookie("refresh_token", path=settings.COOKIE_PATH)
-    return {"status": "ok"}
-
+    # Return minimal user info (avoid returning password_hash)
+    return {"access_token": access_token, "token_type": "bearer", "user": {"id": str(user.id), "name": user.name, "email": user.email, "role": user.role}}

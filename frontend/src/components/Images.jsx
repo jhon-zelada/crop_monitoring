@@ -1,5 +1,5 @@
 import React from "react";
-import ImageModal from "../components/ImageModal";
+import ImageModal from "./ImageModal";
 
 export default function Images() {
   const [images, setImages] = React.useState([]); // uploaded images

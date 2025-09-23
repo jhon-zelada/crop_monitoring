@@ -130,13 +130,13 @@ export default function Sidebar({ view, setView, collapsed, setCollapsed, user }
 
       <div className="status">
         <div style={{ marginBottom: 6 }}>
-          <strong style={{ color: "#e6eef4" }}>Conectado como:</strong>
+          <strong style={{ color: "#4b5563ff" }}>Conectado como:</strong>
         </div>
         <div style={{ fontWeight: 700 }}>{user?.name ?? "Operador"}</div>
         <div style={{ marginTop: 10 }}>
-          <div className="kv">Sistema</div>
+          
           <div style={{ marginTop: 6 }}>
-            <span className="badge">Activo</span>
+            <span className="badge"> Sistema activo</span>
           </div>
         </div>
       </div>
