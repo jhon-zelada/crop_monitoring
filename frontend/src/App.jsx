@@ -90,12 +90,6 @@ export default function App() {
     } catch {}
   }, [collapsed]);
 
-  // refresh handler (could call backend here)
-  const handleRefresh = async () => {
-    setLastUpdated(new Date());
-    // optionally call APIs to refresh visible data
-  };
-
   const renderPage = () => {
     switch (view) {
       case "dashboard":

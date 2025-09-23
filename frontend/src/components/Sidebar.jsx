@@ -1,12 +1,20 @@
+// File: src/components/Sidebar.jsx (updated — adds spacing and aligned section titles)
 import React from "react";
 import logoImg from "../assets/logo.png"; // create frontend/src/assets/logo.png
 
-const NAV_ITEMS = [
+// main / admin nav groups
+const MAIN_NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard" },
   { key: "mapa", label: "Mapa Interactivo" },
   { key: "alertas", label: "Alertas" },
   { key: "graficos", label: "Gráfico de Sensores" },
   { key: "imagenes", label: "Visor de Imágenes" },
+];
+
+const ADMIN_NAV_ITEMS = [
+  { key: "usuarios", label: "Usuarios" },
+  { key: "parcelas", label: "Parcelas" },
+  { key: "permisos", label: "Permisos" },
 ];
 
 // small inline icons (simple)
@@ -25,6 +33,15 @@ function Icon({ name }) {
       return <svg style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>;
     case "imagenes":
       return <svg style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/></svg>;
+
+    // admin icons
+    case "usuarios":
+      return <svg style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+    case "parcelas":
+      return <svg style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z"/></svg>;
+    case "permisos":
+      return <svg style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>;
+
     default:
       return <svg style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/></svg>;
   }
@@ -36,7 +53,7 @@ export default function Sidebar({ view, setView, collapsed, setCollapsed, user }
       <div className="brand">
         <div className="logo-wrap">
           {logoImg ? (
-            <img src={logoImg} alt="logo" className="logo-img" height= "30px" />
+            <img src={logoImg} alt="logo" className="logo-img" height="30" />
           ) : (
             <div className="logo-fallback">{user?.initials ?? "CN"}</div>
           )}
@@ -51,7 +68,20 @@ export default function Sidebar({ view, setView, collapsed, setCollapsed, user }
 
       <nav>
         <ul style={{ margin: 0, padding: 0 }}>
-          {NAV_ITEMS.map((it) => {
+          {/* Principal section title (aligned with icons) */}
+          {!collapsed && (
+            <li
+              className="nav-section-title"
+              key="sec-principal"
+              aria-hidden
+              style={{ display: "flex", alignItems: "center", padding: "12px 8px 4px 8px", fontSize: "0.75rem", fontWeight: 600, color: "#8899a6" }}
+            >
+              
+              PRINCIPAL
+            </li>
+          )}
+
+          {MAIN_NAV_ITEMS.map((it) => {
             const active = it.key === view;
             return (
               <li
@@ -59,8 +89,38 @@ export default function Sidebar({ view, setView, collapsed, setCollapsed, user }
                 className={`nav-item ${active ? "active" : ""}`}
                 onClick={() => setView(it.key)}
                 title={collapsed ? it.label : undefined} // tooltip when collapsed
+                style={{ marginTop: 4 }}
               >
-                <div className="icon"><Icon name={it.key === "alertas" ? "alertas" : it.key === "mapa" ? "mapa" : it.key === "graficos" ? "graficos" : it.key === "imagenes" ? "imagenes" : "dashboard"} /></div>
+                <div className="icon"><Icon name={it.key} /></div>
+                <div className="label">{it.label}</div>
+              </li>
+            );
+          })}
+
+          {/* Administración section title (aligned with icons) */}
+          {!collapsed && (
+            <li
+              className="nav-section-title"
+              key="sec-admin"
+              aria-hidden
+              style={{ display: "flex", alignItems: "center", padding: "16px 8px 4px 8px", fontSize: "0.75rem", fontWeight: 600, color: "#8899a6" }}
+            >
+              
+              ADMINISTRACIÓN
+            </li>
+          )}
+
+          {ADMIN_NAV_ITEMS.map((it) => {
+            const active = it.key === view;
+            return (
+              <li
+                key={it.key}
+                className={`nav-item ${active ? "active" : ""}`}
+                onClick={() => setView(it.key)}
+                title={collapsed ? it.label : undefined}
+                style={{ marginTop: 4 }}
+              >
+                <div className="icon"><Icon name={it.key} /></div>
                 <div className="label">{it.label}</div>
               </li>
             );
