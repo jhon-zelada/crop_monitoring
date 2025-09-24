@@ -143,4 +143,12 @@ def health():
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    await telemetry.stop_telemetry_pubsub_listener()
     await close_redis()
+
+@app.on_event("startup")
+async def on_startup():
+    await telemetry.start_telemetry_pubsub_listener(app)
+
+
+    

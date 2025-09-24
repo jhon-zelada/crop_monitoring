@@ -73,7 +73,7 @@ def process_measurement(self, payload: dict):
 
         # publish per-device channel and global channel
         redis_client.publish(f"telemetry:{device_uuid}", json.dumps(pub))
-        redis_client.publish("telemetry:all", json.dumps(pub))
+        #redis_client.publish("telemetry:all", json.dumps(pub))
 
         return {"status": "ok", "id": m.id}
 

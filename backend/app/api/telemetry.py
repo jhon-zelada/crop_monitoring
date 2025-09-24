@@ -5,14 +5,13 @@ import asyncio
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 from uuid import UUID
 
 from fastapi import (
     APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect,
     Header, status
 )
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -27,6 +26,10 @@ from app.core.security import verify_ws_token
 # celery task
 from app.workers.tasks import process_measurement
 
+import logging
+import redis.asyncio as aioredis  # async client for the API process
+from typing import Optional, Dict, Any
+import secrets
 router = APIRouter()
 
 # ---------- Config helpers ----------
@@ -42,32 +45,41 @@ class Measurements(BaseModel):
     battery_v: float | None = None
 
 class TelemetryIn(BaseModel):
-    device_id: str
-    message_id: str | None
+    device_id: UUID
+    message_id: Optional[str] = None
     timestamp: datetime
     measurements: Measurements
-    meta: dict | None = None
+    meta: Optional[Dict[str, Any]] = None
 
-    @field_validator("device_id")
-    @classmethod
-    def must_be_uuid(cls, v: str) -> str:
-        try:
-            UUID(str(v))
-            return v
-        except Exception:
-            raise ValueError("device_id must be a valid UUID string")
 
-def _verify_device_token_for_device(token: str | None, device: models.Device):
+class DeviceNotFoundError(HTTPException):
+    def __init__(self):
+        super().__init__(status_code=404, detail="Device not found")
+
+def _verify_device_token_for_device(token: str | None, device: models.Device) -> None:
+    """Validate that the provided token matches the device or global secret.
+
+    Uses ``secrets.compare_digest`` to avoid timing attacks when comparing
+    secret values【460602844951578†L103-L121】.  Raises an HTTP 401 if the
+    token is missing or invalid.
+    """
     if token is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing device token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing device token"
+        )
 
-    if token == getattr(settings, "DEVICE_TOKEN", None) and ALLOW_GLOBAL_DEVICE_TOKEN:
+    # Allow global token in development only when explicitly enabled.
+    global_token = getattr(settings, "DEVICE_TOKEN", None)
+    if ALLOW_GLOBAL_DEVICE_TOKEN and global_token and secrets.compare_digest(token, global_token):
         return
 
-    if device and token == device.token:
+    # Compare the provided token with the device's token in constant time
+    if device and device.token and secrets.compare_digest(token, device.token):
         return
 
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid device token")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid device token"
+    )
 
 def _extract_user_access_token(query_params) -> Optional[str]:
     # keep helper for compatibility (reads ?access_token=...)
@@ -134,6 +146,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+
 # ---------- WebSocket: realtime viewer ----------
 @router.websocket("/ws/live")
 async def ws_live(websocket: WebSocket):
@@ -170,22 +183,23 @@ async def ws_live(websocket: WebSocket):
 
     # register in manager (manager.connect accepts and registers)
     await manager.connect(websocket, device_id)
-
+    logger.info(f"WebSocket connected, device_id: {device_id}")
     try:
         while True:
             # wait for client pings or control messages (we ignore content)
             await websocket.receive_text()
     except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
+        logger.info(f"WebSocket disconnected from device {device_id}")
+    except Exception as e:
+        logger.exception(f"Unexpected error during WebSocket communication: {str(e)}")
     finally:
         await manager.disconnect(websocket)
+        logger.info(f"WebSocket disconnected from device {device_id}")
 
 
 # ---------- Ingest telemetry (devices) ----------
 @router.post("/api/v1/telemetry", status_code=202)
-async def ingest_telemetry(
+def ingest_telemetry(
     payload: TelemetryIn,
     token: str | None = Header(default=None, alias="X-Device-Token"),
     db: Session = Depends(get_db)
@@ -196,10 +210,11 @@ async def ingest_telemetry(
       - validates device's token (per-device or global in dev)
       - pushes a Celery job for processing (DB insert + Redis pub)
     """
-    device_uuid = UUID(payload.device_id)
+    device_uuid = payload.device_id
     device = db.query(models.Device).filter(models.Device.id == device_uuid).one_or_none()
     if device is None:
-        raise HTTPException(status_code=404, detail="device not found")
+        raise DeviceNotFoundError()
+        #raise HTTPException(status_code=404, detail="device not found")
 
     _verify_device_token_for_device(token, device)
 
@@ -293,3 +308,111 @@ def get_summary(device_id: UUID, hours: int = 24, db: Session = Depends(get_db),
         "wind_speed_m_s": pack(q[9], q[10], q[11]),
         "wind_direction_deg": pack(q[12], q[13], q[14]),
     }
+
+@router.get("/api/v1/devices")
+def get_devices(db: Session = Depends(get_db)):
+    """Fetch all registered devices."""
+    devices = db.query(models.Device).all()
+    if not devices:
+        raise HTTPException(status_code=404, detail="No devices found")
+    return [{"id": device.id, "name": device.name} for device in devices]
+
+logger = logging.getLogger(__name__)
+
+_PSUB_PATTERN = "telemetry:*"
+_pubsub_task: Optional[asyncio.Task] = None
+_pubsub_redis: Optional[aioredis.Redis] = None
+
+async def _redis_pubsub_loop():
+    global _pubsub_redis
+    backoff = 1.0
+    retries = 0
+    max_retries = 10
+    try:
+        while retries < max_retries:
+            try:
+                logger.info("Telemetry pubsub: connecting to Redis...")
+                _pubsub_redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+                pubsub = _pubsub_redis.pubsub(ignore_subscribe_messages=True)
+                await pubsub.psubscribe(_PSUB_PATTERN)
+                logger.info("Telemetry pubsub: subscribed to %s", _PSUB_PATTERN)
+
+                async for msg in pubsub.listen():
+                    if not msg:
+                        continue
+                    mtype = msg.get("type")
+                    if mtype not in ("pmessage", "message"):
+                        continue
+                    channel = msg.get("channel")
+                    data = msg.get("data")
+                    if not channel or data is None:
+                        continue
+                    # tasks.py publishes JSON strings; parse
+                    try:
+                        payload = json.loads(data) if isinstance(data, str) else data
+                    except Exception:
+                        logger.exception("Invalid JSON in pubsub message on %s", channel)
+                        continue
+
+                    # skip global channel to avoid dupes (we only handle device channels)
+                    if channel == "telemetry:all":
+                        continue
+
+                    if isinstance(channel, str) and channel.startswith("telemetry:"):
+                        device_id = channel.split(":", 1)[1]
+                        try:
+                            await manager.broadcast(device_id, payload)
+                        except Exception:
+                            logger.exception("Error broadcasting telemetry for device %s", device_id)
+                    else:
+                        try:
+                            await manager.broadcast(None, payload)
+                        except Exception:
+                            logger.exception("Error broadcasting telemetry (global)")
+                logger.warning("Telemetry pubsub: listen loop exited, reconnecting...")
+            
+            
+            except asyncio.CancelledError:
+                logger.info("Telemetry pubsub: cancelled")
+                raise
+            except Exception:
+                logger.exception("Telemetry pubsub: connection error; reconnecting in %.1fs", backoff)
+                retries += 1
+                logger.exception(f"Redis connection error (Attempt {retries}/{max_retries})")
+                if retries >= max_retries:
+                    logger.error("Max retries reached, giving up.")
+                    break
+                try:
+                    if _pubsub_redis is not None:
+                        await _pubsub_redis.close()
+                except Exception:
+                    pass
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
+    finally:
+        try:
+            if _pubsub_redis is not None:
+                await _pubsub_redis.close()
+        except Exception:
+            pass
+        logger.info("Telemetry pubsub: stopped")
+
+async def start_telemetry_pubsub_listener(app):
+    """Call on FastAPI startup"""
+    global _pubsub_task
+    if _pubsub_task is None:
+        _pubsub_task = asyncio.create_task(_redis_pubsub_loop())
+        app.state.telemetry_pubsub_task = _pubsub_task
+        logger.info("Telemetry pubsub listener started")
+
+async def stop_telemetry_pubsub_listener():
+    """Call on shutdown"""
+    global _pubsub_task
+    if _pubsub_task:
+        _pubsub_task.cancel()
+        try:
+            await _pubsub_task
+        except asyncio.CancelledError:
+            pass
+        _pubsub_task = None
+        logger.info("Telemetry pubsub listener stopped")

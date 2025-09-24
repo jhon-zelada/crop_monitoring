@@ -1,12 +1,14 @@
-// frontend/src/pages/Dashboard.jsx
+// frontend/src/components/Dashboard.jsx
 import React from "react";
 import SensorCard from "./SensorCard";
 import { fetchLatest, fetchSummary, openLive } from "../lib/api";
 
 export default function Dashboard() {
   // Pon aquí un UUID real o deja vacío para "All devices".
-  const DEFAULT_DEVICE = "11111111-1111-1111-1111-111111111111";
-  const [deviceId, setDeviceId] = React.useState(DEFAULT_DEVICE);
+  const [deviceId, setDeviceId] = React.useState(""); // Initially empty for "All devices"
+  const [devices, setDevices] = React.useState([]); // To hold the list of devices from the backend
+  // const DEFAULT_DEVICE = "11111111-1111-1111-1111-111111111111";
+  // const [deviceId, setDeviceId] = React.useState(DEFAULT_DEVICE);
 
   const [now, setNow] = React.useState(new Date());
   const [metrics, setMetrics] = React.useState([
@@ -16,6 +18,25 @@ export default function Dashboard() {
     { key: "wind_speed_m_s", title: "Vel. Viento", value: null, unit: "m/s", min: 0, prom: 3, max: 15 },
     { key: "wind_direction_deg", title: "Dir. Viento", value: null, unit: "°" },
   ]);
+
+
+  // Fetch the list of devices on component mount
+  React.useEffect(() => {
+    async function fetchDevices() {
+      try {
+        const response = await fetch("/api/v1/devices");
+        const data = await response.json();
+        setDevices(data); // Set devices from the backend
+        if (data.length > 0) {
+          setDeviceId(data[0].id); // Automatically select the first device
+        }
+      } catch (err) {
+        console.error("Failed to fetch devices:", err);
+      }
+    }
+
+    fetchDevices();
+  }, []);
 
   // clock
   React.useEffect(() => {
@@ -106,9 +127,11 @@ export default function Dashboard() {
           onChange={(e) => setDeviceId(e.target.value)}
           style={{ padding: 10, borderRadius: 8, border: "1px solid var(--card-border)" }}
         >
-          <option value="">All devices</option>
-          <option value={DEFAULT_DEVICE}>Parcela 1 - Quinua</option>
-          {/* Añade aquí más opciones con UUID reales */}
+          {devices.map((device) => (
+            <option key={device.id} value={device.id}>
+              {device.name}
+            </option>
+          ))}
         </select>
 
         <div style={{ marginLeft: "auto", color: "#64748b", display: "flex", alignItems: "center", gap: 6 }}>
