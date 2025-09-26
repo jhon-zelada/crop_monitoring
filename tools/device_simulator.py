@@ -9,13 +9,13 @@ DEVICE_TOKEN = os.environ.get('DEVICE_TOKEN','devicetoken-example')
 telemetry = {
     'device_id': '11111111-1111-1111-1111-111111111111',
     'message_id': 'msg-008',
-    'timestamp': '2025-09-25T14:06:00Z',
+    'timestamp': '2025-09-25T17:10:00Z',
     'measurements': {
         'temperature_c': 25.0,
-        'relative_humidity_pct': 22.0,
-        'solar_radiance_w_m2': 1550.0,
-        'wind_speed_m_s': 13.3,
-        'wind_direction_deg': 60.0,
+        'relative_humidity_pct': 65.0,
+        'solar_radiance_w_m2': 1080.0,
+        'wind_speed_m_s': 12.3,
+        'wind_direction_deg': 16.0,
         'battery_v': 33.8
     }
 }

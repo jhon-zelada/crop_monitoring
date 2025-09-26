@@ -117,7 +117,16 @@ export default function Alertas() {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 12 }}>Alertas</h2>
+      <div className="banner">
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 18 }}>Proyecto quinua</div>
+          <div className="kv">Agricultura de Precisión — Monitoreo IoT</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#065f46" }}>1</div>
+          <div className="kv">Parcela</div>
+        </div>
+      </div>
 
       <div className="alert-list">
         {alerts.length === 0 && (

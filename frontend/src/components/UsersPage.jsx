@@ -335,8 +335,18 @@ export default function UsersPage() {
     <div className="main-area p-6">
       {/* Header + controls */}
       <div className="flex items-center justify-between mb-6">
+        <div className="banner">
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 18 }}>Proyecto quinua</div>
+            <div className="kv">Agricultura de Precisión — Monitoreo IoT</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#065f46" }}>1</div>
+          <div className="kv">Parcela</div>
+        </div>
+      </div>
         <div>
-          <h1 className="text-2xl font-bold">Gestión de Usuarios</h1>
+          
           <p className="text-sm text-muted">Administración de usuarios — registra, filtra y exporta</p>
         </div>
         <div className="flex items-center gap-2">

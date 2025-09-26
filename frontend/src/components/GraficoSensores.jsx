@@ -8,22 +8,14 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import * as api from "../lib/api"; // we'll use fetchSummary, openLive, and try api.fetchMeasurements if present
-
-// GraficoSensores.jsx
-// - Shows a sparkline + summary card for every metric
-// - Clicking a card opens a larger chart for that metric
-// - Fetches historical series (tries api.fetchMeasurements, otherwise falls back to
-//   a REST fetch to /api/v1/devices/:id/measurements?hours=...)
-// - Subscribes to live WS via api.openLive and appends points to series
-// - Tailwind-friendly styling; uses recharts for charts
+import * as api from "../lib/api";
 
 const DEFAULT_METRICS = [
-  { key: "temperature_c", title: "Temperatura", unit: "°C" },
-  { key: "relative_humidity_pct", title: "Humedad Rel.", unit: "%" },
-  { key: "solar_radiance_w_m2", title: "Radiación Solar", unit: "W/m²" },
-  { key: "wind_speed_m_s", title: "Vel. Viento", unit: "m/s" },
-  { key: "wind_direction_deg", title: "Dir. Viento", unit: "°" },
+  { key: "temperature_c", title: "Temperatura", unit: "°C", color: "text-red-600" },
+  { key: "relative_humidity_pct", title: "Humedad Rel.", unit: "%", color: "text-blue-600" },
+  { key: "solar_radiance_w_m2", title: "Radiación Solar", unit: "W/m²", color: "text-yellow-600" },
+  { key: "wind_speed_m_s", title: "Vel. Viento", unit: "m/s", color: "text-green-600" },
+  { key: "wind_direction_deg", title: "Dir. Viento", unit: "°", color: "text-purple-600" },
 ];
 
 function fmtNumber(v, digits = 2) {
@@ -45,18 +37,42 @@ function computeSummaryFromSeries(series) {
   return { min, max, avg: sum / series.length };
 }
 
+async function fetchMeasurementsFallback(deviceId, hours) {
+  if (typeof api.fetchMeasurements === "function") {
+    try {
+      return await api.fetchMeasurements(deviceId, hours);
+    } catch (e) {
+      console.warn("api.fetchMeasurements failed", e);
+    }
+  }
+
+  try {
+    const token = localStorage.getItem("access_token");
+    const url = `/api/v1/devices/${deviceId}/measurements?hours=${hours}`;
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!resp.ok) throw new Error(`measurements fetch failed: ${resp.status}`);
+    return await resp.json();
+  } catch (e) {
+    console.warn("fallback measurements fetch failed", e);
+    return [];
+  }
+}
+
 export default function GraficoSensores({ initialHours = 24 }) {
   const [devices, setDevices] = React.useState([]);
   const [deviceId, setDeviceId] = React.useState("");
   const [hours, setHours] = React.useState(initialHours);
   const [metrics] = React.useState(DEFAULT_METRICS);
-  const [seriesMap, setSeriesMap] = React.useState({}); // { metricKey: [{time, value}] }
-  const [summaries, setSummaries] = React.useState({}); // raw summary from backend (min,max,avg)
+  const [seriesMap, setSeriesMap] = React.useState({});
+  const [summaries, setSummaries] = React.useState({});
   const [selectedKey, setSelectedKey] = React.useState(metrics[0].key);
   const [loading, setLoading] = React.useState(false);
   const wsRef = React.useRef(null);
 
-  // fetch devices (same endpoint your Dashboard uses)
   React.useEffect(() => {
     let mounted = true;
     (async () => {
@@ -74,41 +90,10 @@ export default function GraficoSensores({ initialHours = 24 }) {
     return () => (mounted = false);
   }, []);
 
-  // helper to attempt to use api.fetchMeasurements if exported, otherwise REST fallback
-async function fetchMeasurementsFallback(deviceId, hours) {
-  // First try to use the api helper (preferred)
-  if (typeof api.fetchMeasurements === "function") {
-    try {
-      return await api.fetchMeasurements(deviceId, hours);
-    } catch (e) {
-      console.warn("api.fetchMeasurements failed", e);
-    }
-  }
-
-  // Manual fallback with Authorization header
-  try {
-    const token = localStorage.getItem("access_token");
-    const url = `/api/v1/devices/${deviceId}/measurements?hours=${hours}`;
-    const resp = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!resp.ok) throw new Error(`measurements fetch failed: ${resp.status}`);
-    return await resp.json();
-  } catch (e) {
-    console.warn("fallback measurements fetch failed", e);
-    return [];
-  }
-}
-
-
-  // load history + summary when deviceId or hours change
   const loadHistory = React.useCallback(async () => {
     if (!deviceId) return;
     setLoading(true);
     try {
-      // fetch summary using your existing api helper if available
       let summary = null;
       try {
         if (typeof api.fetchSummary === "function") {
@@ -126,13 +111,10 @@ async function fetchMeasurementsFallback(deviceId, hours) {
         setSummaries(summary);
       }
 
-      // fetch timeseries
       const measurements = await fetchMeasurementsFallback(deviceId, hours);
-      // measurements expected: array of objects with a timestamp/time field and metric keys
       const map = {};
       for (const m of metrics) map[m.key] = [];
       for (const row of (measurements || [])) {
-        // deduce timestamp property name
         const t = row.time || row.timestamp || row.ts || row.created_at || row.date;
         const time = t ? new Date(t).toISOString() : new Date().toISOString();
         for (const m of metrics) {
@@ -143,7 +125,6 @@ async function fetchMeasurementsFallback(deviceId, hours) {
           map[m.key].push({ time, value: n });
         }
       }
-      // sort series
       for (const k of Object.keys(map)) {
         map[k].sort((a, b) => new Date(a.time) - new Date(b.time));
       }
@@ -159,7 +140,6 @@ async function fetchMeasurementsFallback(deviceId, hours) {
     loadHistory();
   }, [loadHistory]);
 
-  // live WS subscription (similar to Dashboard)
   React.useEffect(() => {
     if (!deviceId) return;
     const ws = api.openLive(deviceId);
@@ -179,15 +159,12 @@ async function fetchMeasurementsFallback(deviceId, hours) {
                 const nv = d[key];
                 if (typeof nv === "number") {
                   const arr = (next[key] || []).concat({ time, value: Number(nv) });
-                  // trim old points outside the window (hours)
                   const cutoff = Date.now() - hours * 3600 * 1000;
                   next[key] = arr.filter((p) => new Date(p.time).getTime() >= cutoff);
                 }
               }
               return next;
             });
-
-            // optionally update summaries locally (recompute from seriesMap) — we keep it simple here
           }
         }
       } catch (e) {
@@ -204,64 +181,35 @@ async function fetchMeasurementsFallback(deviceId, hours) {
     };
   }, [deviceId, hours, metrics]);
 
+  const renderChart = (data, metric) => {
+    if (!data || data.length === 0)
+      return <div className="text-sm text-gray-400">No hay datos para este rango.</div>;
 
-
-  const renderSparkline = (data, metric) => {
-    if (!data || data.length === 0) return <div className="text-xs text-gray-400">no data</div>;
-    
     return (
-      <div className="w-full h-10">
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart
-            data={data}
-            margin={{ top: 20, right: 30, left: 20, bottom: 40 }}
-          >
-            {/* Grid for readability */}
+      <div className="h-60">
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={data} margin={{ top: 12, right: 24, left: 0, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" />
-
-            {/* X axis = time */}
             <XAxis
               dataKey="time"
               tickFormatter={(t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              label={{ value: "Tiempo", position: "bottom", offset: 0 }}
+              minTickGap={20}
             />
-
-            {/* Y axis = value */}
-            
-            <YAxis
-              label={{
-                value: `${metric.title} (${metric.unit})`,
-                angle: -90,
-                position: "insideLeft",
-              }}
-            />
-
+            <YAxis domain={["auto", "auto"]} />
             <Tooltip
-              labelFormatter={(t) =>
-                new Date(t).toLocaleString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-              }
+              labelFormatter={(t) => new Date(t).toLocaleString()}
               formatter={(value) => [fmtNumber(value, 2), metric.unit]}
-
             />
-
-            <Line
-              isAnimationActive={false}
-              type="monotone"
-              dataKey="value"
-              strokeWidth={2}
-              dot={false}
-            />
+            <Line isAnimationActive={false} type="monotone" dataKey="value" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
-        
-
       </div>
     );
   };
 
+  const selectedMetric = metrics.find((m) => m.key === selectedKey) || metrics[0];
   const selectedSeries = seriesMap[selectedKey] || [];
-  const selectedSummaryBackend = (summaries && summaries[selectedKey]) || null;
-  const selectedSummaryComputed = computeSummaryFromSeries(selectedSeries);
+  const lastValue = selectedSeries.length ? selectedSeries[selectedSeries.length - 1].value : null;
 
   return (
     <div>
@@ -272,11 +220,7 @@ async function fetchMeasurementsFallback(deviceId, hours) {
         </div>
 
         <div className="flex items-center gap-3">
-          <select
-            value={deviceId}
-            onChange={(e) => setDeviceId(e.target.value)}
-            className="p-2 rounded-md border"
-          >
+          <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className="p-2 rounded-md border">
             {devices.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
@@ -296,67 +240,97 @@ async function fetchMeasurementsFallback(deviceId, hours) {
             <option value={24}>24h</option>
             <option value={72}>72h</option>
             <option value={168}>7d</option>
+            <option value={17520}>All</option>
           </select>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        {metrics.map((m) => {
-          const series = seriesMap[m.key] || [];
-          const last = series.length ? series[series.length - 1].value : null;
-          const backend = summaries && summaries[m.key];
-          const computed = computeSummaryFromSeries(series);
-          const sum = backend ? { min: backend.min, max: backend.max, avg: backend.avg } : computed;
+      <div className="flex items-center gap-2 mb-4">
+        <label htmlFor="metric-select" className="sr-only">
+          Seleccionar métrica: 
+        </label>
+        <select
+          id="metric-select"
+          value={selectedKey}
+          onChange={(e) => setSelectedKey(e.target.value)}
+          className="select"
+        >
+          {metrics.map((m) => (
+            <option key={m.key} value={m.key}>
+              {m.title}
+            </option>
+          ))}
+        </select>
 
-          return (
-            <div key={m.key} className="metric-row">
-              {/* Chart card */}
-              <div
-                className={`card metric-card cursor-pointer transition ${
-                  selectedKey === m.key ? "ring-2 ring-accent" : ""
-                }`}
-                onClick={() => setSelectedKey(m.key)}
-              >
-                <div className="metric-head">
-                  <div>
-                    <div className="metric-title">{m.title}</div>
-                    <div className="text-xs text-gray-500">{m.unit}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="metric-value">
-                      {last !== null ? fmtNumber(last, 2) : "—"}
-                    </div>
-                    <div className="metric-sub">último</div>
-                  </div>
-                </div>
-
-                <div className="mt-3">{renderSparkline(series,m)}</div>
-              </div>
-
-              {/* Summary card */}
-              <div className="card metric-card flex flex-col justify-center">
-                <div className="stats-row">
-                  <span>min</span>
-                  <span>{sum.min === null ? "—" : fmtNumber(sum.min)}</span>
-                </div>
-                <div className="stats-row">
-                  <span>avg</span>
-                  <span>{sum.avg === null ? "—" : fmtNumber(sum.avg)}</span>
-                </div>
-                <div className="stats-row">
-                  <span>max</span>
-                  <span>{sum.max === null ? "—" : fmtNumber(sum.max)}</span>
-                </div>
-                <div className="mt-3 text-xs text-muted text-right">
-                  {(series && series.length) || 0} pts
-                </div>
-              </div>
-            </div>
-          );
-        })}
       </div>
 
+      {/* Use your CSS .metric-row to layout chart + summary */}
+      <div className="metric-row">
+        {/* Chart card */}
+        <div className="card">
+          <div className="flex items-start justify-between mb-3">
+            <div className="text-lg font-semibold">
+              {selectedMetric.title} {selectedMetric.unit}
+            </div>
+          </div>
 
+          <div className="border rounded-md p-3 bg-gray-50">
+            {renderChart(selectedSeries, selectedMetric)}
+
+            <div className="mt-3 flex items-center justify-between text-sm text-gray-700">
+              <div>
+                Último:{" "}
+                <span className="font-medium">
+                  {lastValue === null ? "—" : `${fmtNumber(lastValue, 2)} ${selectedMetric.unit}`}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Summary card */}
+        <div className="card">
+          <div className="mb-3">
+            <div className="text-base font-bold text-gray-800">Resumen de mediciones {hours} horas</div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="table text-sm divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr className="text-gray-700 font-semibold">
+                  <th className="text-left py-2 pl-1">Parámetro</th>
+                  <th className="text-right py-2 pr-4">Min</th>
+                  <th className="text-right py-2 pr-4">Prom</th>
+                  <th className="text-right py-2 pr-1">Max</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {metrics.map((m) => {
+                  const series = seriesMap[m.key] || [];
+                  const backend = summaries && summaries[m.key];
+                  const computed = computeSummaryFromSeries(series);
+                  const sum = backend ? { min: backend.min, max: backend.max, avg: backend.avg } : computed;
+                  const labelClass = `py-2 pl-1 truncate font-medium ${m.color || "text-gray-800"}`;
+                  const numberClass = `py-2 pr-4 text-right ${m.color || "text-gray-700"}`;
+
+                  return (
+                    <tr key={m.key} className="align-middle">
+                      <td className={labelClass}>{m.title}</td>
+                      <td className={numberClass}>{sum.min == null ? "—" : fmtNumber(sum.min, 2)}</td>
+                      <td className={numberClass}>{sum.avg == null ? "—" : fmtNumber(sum.avg, 2)}</td>
+                      <td className="py-2 pr-1 text-right">{sum.max == null ? "—" : fmtNumber(sum.max, 2)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-3 text-xs text-gray-400 text-right">
+            Actualizado: {loading ? "Cargando…" : "Últimos datos mostrados"}
+          </div>
+        </div>
+      </div>
 
       {loading && <div className="mt-3 text-sm text-gray-500">Cargando datos…</div>}
     </div>

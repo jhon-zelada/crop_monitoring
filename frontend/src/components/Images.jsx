@@ -19,7 +19,16 @@ export default function Images() {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 12 }}>Visor de Imágenes</h2>
+      <div className="banner">
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 18 }}>Proyecto quinua</div>
+          <div className="kv">Agricultura de Precisión — Monitoreo IoT</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#065f46" }}>1</div>
+          <div className="kv">Parcela</div>
+        </div>
+      </div>
 
       {/* Upload control */}
       <div style={{ marginBottom: 16 }}>
