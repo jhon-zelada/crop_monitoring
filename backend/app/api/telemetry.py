@@ -317,6 +317,26 @@ def get_devices(db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No devices found")
     return [{"id": device.id, "name": device.name} for device in devices]
 
+
+@router.get("/api/v1/devices/{device_id}/measurements")
+def get_measurements(device_id: UUID, hours: int = 24, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """
+    Returns a list of measurements for a device within the last `hours`.
+    """
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    rows = (
+        db.query(models.Measurement)
+        .filter(
+            models.Measurement.device_id == device_id,
+            models.Measurement.time >= since,
+        )
+        .order_by(models.Measurement.time.asc())
+        .all()
+    )
+    return [serialize_measurement(r) for r in rows]
+
+
+
 logger = logging.getLogger(__name__)
 
 _PSUB_PATTERN = "telemetry:*"

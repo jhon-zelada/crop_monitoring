@@ -12,7 +12,7 @@ export default function Dashboard() {
 
   const [now, setNow] = React.useState(new Date());
   const [metrics, setMetrics] = React.useState([
-    { key: "temperature_c", title: "Temperatura", value: null, unit: "°C", min: -5, prom: 18, max: 35 },
+    { key: "temperature_c", title: "Temperatura", value: null, unit: "°C", min: 5, prom: 18, max: 35 },
     { key: "relative_humidity_pct", title: "Humedad Rel.", value: null, unit: "%", min: 20, prom: 50, max: 90 },
     { key: "solar_radiance_w_m2", title: "Radiación Solar", value: null, unit: "W/m²", min: 0, prom: 600, max: 1200 },
     { key: "wind_speed_m_s", title: "Vel. Viento", value: null, unit: "m/s", min: 0, prom: 3, max: 15 },

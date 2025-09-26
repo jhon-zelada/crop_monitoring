@@ -9,7 +9,7 @@ import React from "react";
  * If you prefer to decide status upstream, pass a prop `overrideStatus = { level: 'good'|'warn'|'bad', text: '...' }`
  */
 
-function computeStatus(title, value) {
+export function computeStatus(title, value) {
   // Defaults (heuristics) — tweak freely.
   // Temperature (°C)
   if (title === "Temperatura") {

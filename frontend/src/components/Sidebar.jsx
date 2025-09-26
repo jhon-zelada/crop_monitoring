@@ -14,7 +14,7 @@ const MAIN_NAV_ITEMS = [
 const ADMIN_NAV_ITEMS = [
   { key: "usuarios", label: "Usuarios" },
   { key: "parcelas", label: "Parcelas" },
-  { key: "permisos", label: "Permisos" },
+  //{ key: "permisos", label: "Permisos" },
 ];
 
 // small inline icons (simple)

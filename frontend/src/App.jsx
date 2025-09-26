@@ -4,7 +4,7 @@ import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 
 import Dashboard from "./components/Dashboard";
-import MapaInteractivo from "./pages/MapaInteractivo";
+import MapaInteractivo from "./components/MapaInteractivo";
 import Alertas from "./components/Alertas";
 import Images from "./components/Images";
 import GraficoSensores from "./components/GraficoSensores";
@@ -14,7 +14,13 @@ import LandingPage from "./pages/Landing";
 
 export default function App() {
   // main app view
-  const [view, setView] = React.useState("dashboard");
+  const [view, setView] = React.useState(() => {
+  try {
+    return localStorage.getItem("app.view") || "dashboard";
+  } catch {
+    return "dashboard";
+  }
+});
 
   // public view when unauthenticated: 'landing' | 'login'
   const [publicView, setPublicView] = React.useState("landing");
@@ -34,20 +40,35 @@ export default function App() {
   // token-based gating (keeps using 'access_token')
   const [authenticated, setAuthenticated] = React.useState(() => {
     try {
-      const u = localStorage.getItem("user");
-      return u ? JSON.parse(u) : null;
+      return !!localStorage.getItem("access_token");
     } catch {
-      return null;
+      return false;
     }
   });
 
+
   // user (default); you can replace with server-provided payload.user on login
-  const [user, setUser] = React.useState({
-    name: "Carlos Mendoza",
-    avatar: null,
-    email: "carlos.mendoza@example.com",
-    accountType: "Administrador",
+  const [user, setUser] = React.useState(() => {
+    try {
+      const stored = localStorage.getItem("user");
+      return stored
+        ? JSON.parse(stored)
+        : {
+            name: "Carlos Mendoza",
+            avatar: null,
+            email: "carlos.mendoza@example.com",
+            accountType: "Administrador",
+          };
+    } catch {
+      return {
+        name: "Carlos Mendoza",
+        avatar: null,
+        email: "carlos.mendoza@example.com",
+        accountType: "Administrador",
+      };
+    }
   });
+
 
   // callback after successful login (LoginPage calls onLogin(payload))
   const handleLogin = (payload) => {
@@ -91,6 +112,12 @@ export default function App() {
     } catch {}
   }, [collapsed]);
 
+  React.useEffect(() => {
+    try {
+      localStorage.setItem("app.view", view);
+    } catch {}
+  }, [view]);
+
   const renderPage = () => {
     switch (view) {
       case "dashboard":
@@ -105,11 +132,10 @@ export default function App() {
         return <GraficoSensores />;
       case "usuarios":
         return <UsersPage />;
-        //return <div>Gestión de Usuarios (próximamente)</div>;
       case "parcelas":
         return <div>Gestión de Parcelas (próximamente)</div>;
-      case "permisos":
-        return <div>Gestión de Permisos (próximamente)</div>;
+      // case "permisos":
+      //   return <div>Gestión de Permisos (próximamente)</div>;
       default:
         return <Dashboard />;
     }

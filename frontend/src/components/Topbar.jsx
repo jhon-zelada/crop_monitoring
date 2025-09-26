@@ -85,7 +85,9 @@ export default function Topbar({
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ width: 12, height: 12, borderRadius: 12, background: "#10b981" }} />
+
           <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
+
         </div>
       </div>
 

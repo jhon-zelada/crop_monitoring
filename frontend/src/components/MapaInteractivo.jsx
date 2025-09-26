@@ -1,4 +1,4 @@
-// src/pages/MapaInteractivo.jsx
+// src/components/MapaInteractivo.jsx
 import React, { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -150,7 +150,17 @@ export default function MapaInteractivo({ stations = SAMPLE_STATIONS /* or pass 
 
   return (
     <div>
-      <h2 style={{ marginBottom: 12 }}>Mapa Interactivo</h2>
+
+      <div className="banner">
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 18 }}>Proyecto quinua</div>
+          <div className="kv">Agricultura de Precisión — Monitoreo IoT</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#065f46" }}>1</div>
+          <div className="kv">Parcela</div>
+        </div>
+      </div>
 
       {/* responsive two-column: map card + legend card */}
       <div className="map-layout" style={{ marginTop: 8 }}>

@@ -480,3 +480,11 @@ button:focus-visible, .nav-item:focus-visible, .collapse-btn:focus-visible{ outl
   font-weight: 600;
 }
 
+.metric-row {
+  display: grid;
+  grid-template-columns: 3fr 1fr; /* chart 2/3, summary 1/3 */
+  gap: 16px;
+}
+@media (max-width: 640px) {
+  .metric-row { grid-template-columns: 1fr; } /* stack on small screens */
+}
